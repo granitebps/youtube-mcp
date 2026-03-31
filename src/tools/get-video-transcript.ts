@@ -18,6 +18,16 @@ export const getVideoTranscriptSchema = z.object({
     .trim()
     .default("en")
     .describe("Language code for the transcript (e.g., 'en', 'id', 'ja')"),
+  maxSegments: z
+    .number()
+    .min(0)
+    .default(0)
+    .describe("Maximum number of transcript segments to return. 0 (default) returns all segments. Use with startSegment for pagination."),
+  startSegment: z
+    .number()
+    .min(0)
+    .default(0)
+    .describe("Segment index to start from (0-based). Use with maxSegments to paginate through long transcripts."),
 });
 
 export async function getVideoTranscript(
@@ -42,22 +52,30 @@ export async function getVideoTranscript(
       };
     }
 
-    const MAX_SEGMENTS = 500;
-    const truncated = segments.length > MAX_SEGMENTS;
-    const displaySegments = truncated ? segments.slice(0, MAX_SEGMENTS) : segments;
+    const totalSegments = segments.length;
+    const start = Math.min(args.startSegment, totalSegments);
+    const sliced = args.maxSegments > 0
+      ? segments.slice(start, start + args.maxSegments)
+      : segments.slice(start);
 
-    const lines: string[] = [`📝 Transcript for video ${videoId}:\n`];
-    for (const seg of displaySegments) {
+    const hasMore = start + sliced.length < totalSegments;
+    const nextStart = start + sliced.length;
+
+    const lines: string[] = [
+      `📝 Transcript for video ${videoId} (segments ${start + 1}–${start + sliced.length} of ${totalSegments}):\n`,
+    ];
+
+    for (const seg of sliced) {
       const timestamp = formatTimestamp(seg.offset);
       lines.push(`[${timestamp}] ${seg.text}`);
     }
 
-    if (truncated) {
-      lines.push(`\n⚠️ Transcript truncated: showing first ${MAX_SEGMENTS} of ${segments.length} segments.`);
+    if (hasMore) {
+      lines.push(`\n⏭️ More transcript available. Fetch next chunk with startSegment=${nextStart}${args.maxSegments > 0 ? ` and maxSegments=${args.maxSegments}` : ""}.`);
     }
 
     lines.push("\n--- Plain text ---\n");
-    lines.push(displaySegments.map((s) => s.text).join(" "));
+    lines.push(sliced.map((s) => s.text).join(" "));
 
     return { content: [{ type: "text" as const, text: lines.join("\n") }] };
   } catch (err: unknown) {

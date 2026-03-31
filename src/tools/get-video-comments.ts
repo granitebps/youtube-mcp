@@ -11,13 +11,18 @@ export const getVideoCommentsSchema = z.object({
   maxResults: z
     .number()
     .min(1)
-    .max(100)
+    .max(20)
     .default(20)
-    .describe("Maximum number of comment threads to return (1-100)"),
+    .describe("Number of comment threads per page (1-20, YouTube returns ~20 per page)"),
   sortBy: z
     .enum(["time", "relevance"])
     .default("relevance")
     .describe("Sort order: 'relevance' (top comments) or 'time' (newest first)"),
+  page: z
+    .number()
+    .min(1)
+    .default(1)
+    .describe("Page number for pagination. Each page returns up to 20 comment threads. Use hasMore in the response to know if more pages exist."),
 });
 
 export async function getVideoComments(
@@ -31,24 +36,26 @@ export async function getVideoComments(
     return { content: [{ type: "text" as const, text: `❌ Invalid video: ${msg}` }], isError: true };
   }
 
-  let comments: Awaited<ReturnType<typeof fetchComments>>;
+  let result: Awaited<ReturnType<typeof fetchComments>>;
   try {
-    comments = await fetchComments(videoId, args.maxResults, args.sortBy);
+    result = await fetchComments(videoId, args.maxResults, args.sortBy, args.page);
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     return { content: [{ type: "text" as const, text: `❌ ${msg}` }], isError: true };
   }
 
-  if (comments.length === 0) {
+  if (result.threads.length === 0) {
     return {
       content: [{ type: "text" as const, text: "No comments found for this video." }],
     };
   }
 
   const MAX_REPLIES = 5;
-  const lines: string[] = [`💬 ${comments.length} comment thread(s):\n`];
+  const lines: string[] = [
+    `💬 Page ${result.page} — ${result.threads.length} comment thread(s)${result.hasMore ? ` (more available, use page=${result.page + 1})` : " (last page)"}:\n`,
+  ];
 
-  for (const [i, comment] of comments.entries()) {
+  for (const [i, comment] of result.threads.entries()) {
     lines.push(`--- Comment ${i + 1} ---`);
     lines.push(`Author: ${comment.author}`);
     lines.push(`Date: ${comment.publishedAt}`);

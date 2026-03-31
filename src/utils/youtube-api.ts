@@ -47,7 +47,7 @@ class TTLCache<T> {
 }
 
 const videoInfoCache = new TTLCache<VideoInfo>();
-const commentsCache = new TTLCache<CommentThread[]>();
+// commentsCache declared after CommentPage interface below
 const searchCache = new TTLCache<SearchResult[]>();
 const CACHE_TTL = {
   videoInfo: 30 * 60 * 1000,   // 30 minutes
@@ -143,12 +143,22 @@ export interface CommentReply {
   publishedAt: string;
 }
 
+export interface CommentPage {
+  threads: CommentThread[];
+  hasMore: boolean;
+  page: number;
+  totalFetched: number;
+}
+
+const commentsCache = new TTLCache<CommentPage>();
+
 export async function fetchComments(
   videoId: string,
   maxResults: number = 20,
-  order: "relevance" | "time" = "relevance"
-): Promise<CommentThread[]> {
-  const cacheKey = `${videoId}:${maxResults}:${order}`;
+  order: "relevance" | "time" = "relevance",
+  page: number = 1
+): Promise<CommentPage> {
+  const cacheKey = `${videoId}:${maxResults}:${order}:${page}`;
   const cached = commentsCache.get(cacheKey);
   if (cached) return cached;
 
@@ -167,6 +177,18 @@ export async function fetchComments(
       throw new Error("Comments are disabled for this video.");
     }
     throw new Error(`Failed to fetch comments: ${msg}`);
+  }
+
+  // Navigate to the requested page using getContinuation()
+  // YouTube returns ~20 threads per page
+  for (let p = 1; p < page; p++) {
+    if (!commentsData.has_continuation) break;
+    try {
+      commentsData = await withTimeout(commentsData.getContinuation(), 10_000);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`Failed to load page ${p + 1}: ${msg}`);
+    }
   }
 
   const threads: CommentThread[] = [];
@@ -201,8 +223,15 @@ export async function fetchComments(
     });
   }
 
-  commentsCache.set(cacheKey, threads, CACHE_TTL.comments);
-  return threads;
+  const result: CommentPage = {
+    threads,
+    hasMore: commentsData.has_continuation && threads.length === maxResults,
+    page,
+    totalFetched: threads.length,
+  };
+
+  commentsCache.set(cacheKey, result, CACHE_TTL.comments);
+  return result;
 }
 
 export interface SearchResult {
