@@ -19,6 +19,10 @@ import {
   searchYoutube,
   searchYoutubeSchema,
 } from "./tools/search-youtube.js";
+import {
+  getTranscriptLanguages,
+  getTranscriptLanguagesSchema,
+} from "./tools/get-transcript-languages.js";
 import { closeClient } from "./utils/youtube-api.js";
 import { logger, withLogging } from "./utils/logger.js";
 import { randomUUID } from "node:crypto";
@@ -52,6 +56,12 @@ function createServer(): McpServer {
       "Search YouTube videos by query. Returns up to 50 results with title, channel, views, duration, and URL. Supports filtering by uploadDate (today/week/month/year) and videoDuration (short/medium/long), and sorting by relevance, date, viewCount, or rating.",
     inputSchema: searchYoutubeSchema.shape,
   }, withLogging("search_youtube", searchYoutube));
+
+  server.registerTool("get_transcript_languages", {
+    description:
+      "List all available caption/transcript languages for a YouTube video. Returns language codes and names for both manual and auto-generated captions. Call this first to discover available languages before fetching a transcript.",
+    inputSchema: getTranscriptLanguagesSchema.shape,
+  }, withLogging("get_transcript_languages", getTranscriptLanguages));
 
   return server;
 }
