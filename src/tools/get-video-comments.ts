@@ -5,6 +5,8 @@ import { fetchComments } from "../utils/youtube-api.js";
 export const getVideoCommentsSchema = z.object({
   video: z
     .string()
+    .min(1, "Video URL or ID is required")
+    .trim()
     .describe("YouTube video URL or video ID"),
   maxResults: z
     .number()
@@ -43,6 +45,7 @@ export async function getVideoComments(
     };
   }
 
+  const MAX_REPLIES = 5;
   const lines: string[] = [`💬 ${comments.length} comment thread(s):\n`];
 
   for (const [i, comment] of comments.entries()) {
@@ -53,8 +56,10 @@ export async function getVideoComments(
     lines.push(`Text: ${comment.text}`);
 
     if (comment.replies.length > 0) {
-      lines.push(`  Replies (${comment.replies.length} of ${comment.replyCount}):`);
-      for (const reply of comment.replies) {
+      const displayReplies = comment.replies.slice(0, MAX_REPLIES);
+      const truncatedReplies = comment.replies.length > MAX_REPLIES;
+      lines.push(`  Replies (showing ${displayReplies.length} of ${comment.replyCount}${truncatedReplies ? `, capped at ${MAX_REPLIES}` : ""}):`);
+      for (const reply of displayReplies) {
         lines.push(`    → ${reply.author} (${reply.publishedAt}, ${reply.likeCount} likes)`);
         lines.push(`      ${reply.text}`);
       }

@@ -4,6 +4,8 @@ import { searchVideos } from "../utils/youtube-api.js";
 export const searchYoutubeSchema = z.object({
   query: z
     .string()
+    .min(1, "Search query is required")
+    .trim()
     .describe("Search query string"),
   maxResults: z
     .number()

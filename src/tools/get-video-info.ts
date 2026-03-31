@@ -5,6 +5,8 @@ import { fetchVideoInfo } from "../utils/youtube-api.js";
 export const getVideoInfoSchema = z.object({
   video: z
     .string()
+    .min(1, "Video URL or ID is required")
+    .trim()
     .describe("YouTube video URL or video ID"),
 });
 

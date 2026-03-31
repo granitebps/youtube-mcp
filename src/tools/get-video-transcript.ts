@@ -8,9 +8,14 @@ import { parseVideoId } from "../utils/parse-video-id.js";
 export const getVideoTranscriptSchema = z.object({
   video: z
     .string()
+    .min(1, "Video URL or ID is required")
+    .trim()
     .describe("YouTube video URL or video ID"),
   lang: z
     .string()
+    .min(2, "Language code must be at least 2 characters (e.g. 'en', 'id')")
+    .max(10)
+    .trim()
     .default("en")
     .describe("Language code for the transcript (e.g., 'en', 'id', 'ja')"),
 });
@@ -37,14 +42,22 @@ export async function getVideoTranscript(
       };
     }
 
+    const MAX_SEGMENTS = 500;
+    const truncated = segments.length > MAX_SEGMENTS;
+    const displaySegments = truncated ? segments.slice(0, MAX_SEGMENTS) : segments;
+
     const lines: string[] = [`📝 Transcript for video ${videoId}:\n`];
-    for (const seg of segments) {
+    for (const seg of displaySegments) {
       const timestamp = formatTimestamp(seg.offset);
       lines.push(`[${timestamp}] ${seg.text}`);
     }
 
+    if (truncated) {
+      lines.push(`\n⚠️ Transcript truncated: showing first ${MAX_SEGMENTS} of ${segments.length} segments.`);
+    }
+
     lines.push("\n--- Plain text ---\n");
-    lines.push(segments.map((s) => s.text).join(" "));
+    lines.push(displaySegments.map((s) => s.text).join(" "));
 
     return { content: [{ type: "text" as const, text: lines.join("\n") }] };
   } catch (err: unknown) {
