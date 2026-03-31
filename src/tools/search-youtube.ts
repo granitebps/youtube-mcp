@@ -34,13 +34,19 @@ export const searchYoutubeSchema = z.object({
 export async function searchYoutube(
   args: z.infer<typeof searchYoutubeSchema>
 ) {
-  const results = await searchVideos({
-    query: args.query,
-    maxResults: args.maxResults,
-    sortBy: args.sortBy,
-    uploadDate: args.uploadDate,
-    videoDuration: args.videoDuration,
-  });
+  let results: Awaited<ReturnType<typeof searchVideos>>;
+  try {
+    results = await searchVideos({
+      query: args.query,
+      maxResults: args.maxResults,
+      sortBy: args.sortBy,
+      uploadDate: args.uploadDate,
+      videoDuration: args.videoDuration,
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { content: [{ type: "text" as const, text: `❌ ${msg}` }], isError: true };
+  }
 
   if (results.length === 0) {
     return {

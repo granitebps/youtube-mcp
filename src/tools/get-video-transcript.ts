@@ -18,7 +18,13 @@ export const getVideoTranscriptSchema = z.object({
 export async function getVideoTranscript(
   args: z.infer<typeof getVideoTranscriptSchema>
 ) {
-  const videoId = parseVideoId(args.video);
+  let videoId: string;
+  try {
+    videoId = parseVideoId(args.video);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { content: [{ type: "text" as const, text: `❌ Invalid video: ${msg}` }], isError: true };
+  }
 
   try {
     const segments: TranscriptSegment[] = await fetchTranscript(videoId, {
@@ -27,47 +33,38 @@ export async function getVideoTranscript(
 
     if (!segments || segments.length === 0) {
       return {
-        content: [
-          {
-            type: "text" as const,
-            text: "No transcript available for this video.",
-          },
-        ],
+        content: [{ type: "text" as const, text: "No transcript available for this video." }],
       };
     }
 
     const lines: string[] = [`📝 Transcript for video ${videoId}:\n`];
-
     for (const seg of segments) {
       const timestamp = formatTimestamp(seg.offset);
       lines.push(`[${timestamp}] ${seg.text}`);
     }
 
-    // Also provide a plain text version without timestamps
     lines.push("\n--- Plain text ---\n");
     lines.push(segments.map((s) => s.text).join(" "));
 
     return { content: [{ type: "text" as const, text: lines.join("\n") }] };
-  } catch (error: any) {
-    const message = error?.message || String(error);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
 
     if (
-      message.includes("disabled") ||
-      message.includes("not available") ||
-      message.includes("Could not") ||
-      message.includes("Impossible")
+      msg.includes("disabled") ||
+      msg.includes("not available") ||
+      msg.includes("Could not") ||
+      msg.includes("Impossible")
     ) {
       return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Transcript not available for this video. The video may have captions disabled or no captions in language "${args.lang}".`,
-          },
-        ],
+        content: [{
+          type: "text" as const,
+          text: `Transcript not available for this video. The video may have captions disabled or no captions in language "${args.lang}".`,
+        }],
       };
     }
 
-    throw error;
+    return { content: [{ type: "text" as const, text: `❌ Failed to fetch transcript: ${msg}` }], isError: true };
   }
 }
 

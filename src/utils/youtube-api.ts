@@ -8,6 +8,7 @@ interface SearchFilters {
   prioritize?: "relevance" | "popularity";
 }
 
+// --- Innertube client singleton ---
 let _innertube: Innertube | null = null;
 
 async function getClient(): Promise<Innertube> {
@@ -15,6 +16,53 @@ async function getClient(): Promise<Innertube> {
     _innertube = await Innertube.create();
   }
   return _innertube;
+}
+
+export function closeClient(): void {
+  _innertube = null;
+}
+
+// --- Simple TTL cache ---
+interface CacheEntry<T> {
+  value: T;
+  expiresAt: number;
+}
+
+class TTLCache<T> {
+  private store = new Map<string, CacheEntry<T>>();
+
+  get(key: string): T | undefined {
+    const entry = this.store.get(key);
+    if (!entry) return undefined;
+    if (Date.now() > entry.expiresAt) {
+      this.store.delete(key);
+      return undefined;
+    }
+    return entry.value;
+  }
+
+  set(key: string, value: T, ttlMs: number): void {
+    this.store.set(key, { value, expiresAt: Date.now() + ttlMs });
+  }
+}
+
+const videoInfoCache = new TTLCache<VideoInfo>();
+const commentsCache = new TTLCache<CommentThread[]>();
+const searchCache = new TTLCache<SearchResult[]>();
+const CACHE_TTL = {
+  videoInfo: 30 * 60 * 1000,   // 30 minutes
+  comments:  10 * 60 * 1000,   // 10 minutes
+  search:    15 * 60 * 1000,   // 15 minutes
+};
+
+// --- Request timeout helper ---
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`Request timed out after ${ms}ms`)), ms)
+    ),
+  ]);
 }
 
 export interface VideoInfo {
@@ -33,19 +81,32 @@ export interface VideoInfo {
 }
 
 export async function fetchVideoInfo(videoId: string): Promise<VideoInfo> {
+  const cached = videoInfoCache.get(videoId);
+  if (cached) return cached;
+
   const yt = await getClient();
-  const info = await yt.getInfo(videoId);
+
+  let info: Awaited<ReturnType<typeof yt.getInfo>>;
+  try {
+    info = await withTimeout(yt.getInfo(videoId), 10_000);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("timed out")) {
+      throw new Error("YouTube API timed out. Please try again.");
+    }
+    throw new Error(`Failed to fetch video info: ${msg}`);
+  }
+
   const basic = info.basic_info;
+  if (!basic.id && !basic.title) {
+    throw new Error("Video not found, may be private, deleted, or unavailable.");
+  }
 
-  // Try to get publish date from primary_info
-  const publishDate =
-    info.primary_info?.published?.toString() || "Unknown";
-
-  // Try to get comment count from comments header area
+  const publishDate = info.primary_info?.published?.toString() || "Unknown";
   const commentCountText =
     info.comments_entry_point_header?.comment_count?.toString() || "N/A";
 
-  return {
+  const result: VideoInfo = {
     videoId: basic.id || videoId,
     title: basic.title || "",
     description: basic.short_description || "",
@@ -59,6 +120,9 @@ export async function fetchVideoInfo(videoId: string): Promise<VideoInfo> {
     tags: basic.tags || basic.keywords || [],
     thumbnailUrl: basic.thumbnail?.[0]?.url || "",
   };
+
+  videoInfoCache.set(videoId, result, CACHE_TTL.videoInfo);
+  return result;
 }
 
 export interface CommentThread {
@@ -84,9 +148,26 @@ export async function fetchComments(
   maxResults: number = 20,
   order: "relevance" | "time" = "relevance"
 ): Promise<CommentThread[]> {
+  const cacheKey = `${videoId}:${maxResults}:${order}`;
+  const cached = commentsCache.get(cacheKey);
+  if (cached) return cached;
+
   const yt = await getClient();
   const sortBy = order === "time" ? "NEWEST_FIRST" : "TOP_COMMENTS";
-  const commentsData = await yt.getComments(videoId, sortBy);
+
+  let commentsData: Awaited<ReturnType<typeof yt.getComments>>;
+  try {
+    commentsData = await withTimeout(yt.getComments(videoId, sortBy), 10_000);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("timed out")) {
+      throw new Error("YouTube API timed out. Please try again.");
+    }
+    if (msg.toLowerCase().includes("disabled") || msg.toLowerCase().includes("comments")) {
+      throw new Error("Comments are disabled for this video.");
+    }
+    throw new Error(`Failed to fetch comments: ${msg}`);
+  }
 
   const threads: CommentThread[] = [];
 
@@ -96,7 +177,6 @@ export async function fetchComments(
     const comment = thread.comment;
     if (!comment) continue;
 
-    // Get replies if available
     const replies: CommentReply[] = [];
     if (thread.has_replies && thread.replies) {
       for (const reply of thread.replies) {
@@ -121,6 +201,7 @@ export async function fetchComments(
     });
   }
 
+  commentsCache.set(cacheKey, threads, CACHE_TTL.comments);
   return threads;
 }
 
@@ -146,13 +227,14 @@ export interface SearchOptions {
 export async function searchVideos(
   options: SearchOptions
 ): Promise<SearchResult[]> {
+  const cacheKey = JSON.stringify(options);
+  const cached = searchCache.get(cacheKey);
+  if (cached) return cached;
+
   const yt = await getClient();
 
-  const filters: SearchFilters = {
-    type: "video",
-  };
+  const filters: SearchFilters = { type: "video" };
 
-  // Map upload date
   if (options.uploadDate !== "any") {
     const dateMap: Record<string, SearchFilters["upload_date"]> = {
       today: "today",
@@ -165,7 +247,6 @@ export async function searchVideos(
     }
   }
 
-  // Map duration
   if (options.videoDuration !== "any") {
     const durationMap: Record<string, SearchFilters["duration"]> = {
       short: "under_three_mins",
@@ -177,53 +258,48 @@ export async function searchVideos(
     }
   }
 
-  // Map sort - youtubei.js uses 'relevance' | 'popularity' as Prioritize
   if (options.sortBy === "viewCount" || options.sortBy === "rating") {
     filters.prioritize = "popularity";
   }
 
-  const searchResults = await yt.search(options.query, filters);
+  let searchResults: Awaited<ReturnType<typeof yt.search>>;
+  try {
+    searchResults = await withTimeout(yt.search(options.query, filters), 10_000);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("timed out")) {
+      throw new Error("YouTube search timed out. Please try again.");
+    }
+    throw new Error(`Search failed: ${msg}`);
+  }
 
   const results: SearchResult[] = [];
 
   for (const video of searchResults.videos) {
     if (results.length >= options.maxResults) break;
 
+    const v = video as unknown as Record<string, unknown>;
+    const duration = v["duration"];
+    const durationText =
+      typeof duration === "object" && duration !== null
+        ? String((duration as Record<string, unknown>)["text"] ?? "")
+        : typeof duration === "number"
+        ? formatDuration(duration)
+        : "";
+
     results.push({
-      videoId: ("id" in video ? (video as any).id : "") || "",
-      title: ("title" in video ? (video as any).title?.toString() : "") || "",
-      description:
-        ("description_snippet" in video
-          ? (video as any).description_snippet?.toString()
-          : "") || "",
-      channelTitle:
-        ("author" in video ? (video as any).author?.name : "") || "",
-      publishedAt:
-        ("published" in video ? (video as any).published?.toString() : "") ||
-        "",
-      thumbnailUrl:
-        ("thumbnails" in video
-          ? (video as any).thumbnails?.[0]?.url
-          : "") || "",
-      viewCount:
-        ("short_view_count" in video
-          ? (video as any).short_view_count?.toString()
-          : "") || "",
-      duration:
-        ("duration" in video
-          ? typeof (video as any).duration === "object"
-            ? (video as any).duration?.text || ""
-            : String((video as any).duration)
-          : "") || "",
+      videoId: String(v["id"] ?? ""),
+      title: String((v["title"] as { toString(): string } | undefined)?.toString() ?? ""),
+      description: String((v["description_snippet"] as { toString(): string } | undefined)?.toString() ?? ""),
+      channelTitle: String((v["author"] as Record<string, unknown> | undefined)?.["name"] ?? ""),
+      publishedAt: String((v["published"] as { toString(): string } | undefined)?.toString() ?? ""),
+      thumbnailUrl: String((v["thumbnails"] as Array<Record<string, unknown>> | undefined)?.[0]?.["url"] ?? ""),
+      viewCount: String((v["short_view_count"] as { toString(): string } | undefined)?.toString() ?? ""),
+      duration: durationText,
     });
   }
 
-  // If sorting by date, sort the results (youtubei.js doesn't have a direct date sort)
-  if (options.sortBy === "date") {
-    // Results from search are already roughly sorted by relevance,
-    // but we requested upload_date filter, which is the best we can do
-  }
-
+  searchCache.set(cacheKey, results, CACHE_TTL.search);
   return results;
 }
 

@@ -4,6 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
+import rateLimit from "express-rate-limit";
 import { getVideoInfo, getVideoInfoSchema } from "./tools/get-video-info.js";
 import {
   getVideoComments,
@@ -17,6 +18,7 @@ import {
   searchYoutube,
   searchYoutubeSchema,
 } from "./tools/search-youtube.js";
+import { closeClient } from "./utils/youtube-api.js";
 import { randomUUID } from "node:crypto";
 
 function createServer(): McpServer {
@@ -27,27 +29,27 @@ function createServer(): McpServer {
 
   server.registerTool("get_video_info", {
     description:
-      "Get YouTube video metadata: title, views, likes, comment count, upload date, duration, tags, and description",
+      "Get YouTube video metadata: title, views, likes, comment count, upload date, duration, tags, and description. Input: YouTube URL or video ID. Returns error message if video is private, deleted, or unavailable.",
     inputSchema: getVideoInfoSchema.shape,
-  }, async (args) => getVideoInfo(args as any));
+  }, (args) => getVideoInfo(args));
 
   server.registerTool("get_video_comments", {
     description:
-      "Get YouTube video comments with replies. Returns comment text, author, likes, and date",
+      "Get YouTube video comments with replies. Returns comment text, author, likes, and date. Supports sorting by 'relevance' (top comments) or 'time' (newest). Returns error if comments are disabled.",
     inputSchema: getVideoCommentsSchema.shape,
-  }, async (args) => getVideoComments(args as any));
+  }, (args) => getVideoComments(args));
 
   server.registerTool("get_video_transcript", {
     description:
-      "Get YouTube video transcript/captions (manual or auto-generated) with timestamps",
+      "Get YouTube video transcript/captions (manual or auto-generated) with timestamps. Use 'lang' to specify language code (e.g. 'en', 'id'). Returns both timestamped and plain text versions. Returns error if captions are unavailable.",
     inputSchema: getVideoTranscriptSchema.shape,
-  }, async (args) => getVideoTranscript(args as any));
+  }, (args) => getVideoTranscript(args));
 
   server.registerTool("search_youtube", {
     description:
-      "Search YouTube videos by query. Supports filtering by upload date (hour/today/week/month/year) and sorting by relevance, date, view count, or rating",
+      "Search YouTube videos by query. Returns up to 50 results with title, channel, views, duration, and URL. Supports filtering by uploadDate (today/week/month/year) and videoDuration (short/medium/long), and sorting by relevance, date, viewCount, or rating.",
     inputSchema: searchYoutubeSchema.shape,
-  }, async (args) => searchYoutube(args as any));
+  }, (args) => searchYoutube(args));
 
   return server;
 }
@@ -65,37 +67,54 @@ function startHttp() {
 
   const app = createMcpExpressApp({ host });
 
+  // Rate limit: 60 requests/min per IP
+  const limiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: "Too many requests, please try again later." },
+  });
+  app.use("/mcp", limiter);
+
   // Per-session transport map for stateful connections
   const transports = new Map<string, StreamableHTTPServerTransport>();
 
   app.all("/mcp", async (req, res) => {
-    const sessionId = req.headers["mcp-session-id"] as string | undefined;
+    try {
+      const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
-    if (sessionId && transports.has(sessionId)) {
-      const transport = transports.get(sessionId)!;
-      await transport.handleRequest(req, res, req.body);
-      return;
-    }
-
-    // Create new transport for initialization requests
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => randomUUID(),
-    });
-
-    transport.onclose = () => {
-      if (transport.sessionId) {
-        transports.delete(transport.sessionId);
+      if (sessionId && transports.has(sessionId)) {
+        const transport = transports.get(sessionId)!;
+        await transport.handleRequest(req, res, req.body);
+        return;
       }
-    };
 
-    const mcpServer = createServer();
-    await mcpServer.connect(transport);
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+      });
 
-    if (transport.sessionId) {
-      transports.set(transport.sessionId, transport);
+      transport.onclose = () => {
+        if (transport.sessionId) {
+          transports.delete(transport.sessionId);
+        }
+      };
+
+      const mcpServer = createServer();
+      await mcpServer.connect(transport);
+
+      if (transport.sessionId) {
+        transports.set(transport.sessionId, transport);
+      }
+
+      await transport.handleRequest(req, res, req.body);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("MCP request error:", msg);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Internal server error" });
+      }
     }
-
-    await transport.handleRequest(req, res, req.body);
   });
 
   return new Promise<void>((_resolve, reject) => {
@@ -103,13 +122,13 @@ function startHttp() {
       console.error(
         `YouTube MCP server running on http://${host}:${port}/mcp`
       );
-      // Do NOT resolve — keeps the promise (and process) alive
     });
 
     httpServer.on("error", reject);
 
     const shutdown = () => {
       console.error("Shutting down...");
+      closeClient();
       httpServer.close(() => process.exit(0));
     };
     process.on("SIGINT", shutdown);
@@ -117,7 +136,6 @@ function startHttp() {
   });
 }
 
-// Select transport mode based on --http flag or TRANSPORT env var
 const useHttp =
   process.argv.includes("--http") ||
   process.env.TRANSPORT === "http";

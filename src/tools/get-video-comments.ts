@@ -21,8 +21,21 @@ export const getVideoCommentsSchema = z.object({
 export async function getVideoComments(
   args: z.infer<typeof getVideoCommentsSchema>
 ) {
-  const videoId = parseVideoId(args.video);
-  const comments = await fetchComments(videoId, args.maxResults, args.sortBy);
+  let videoId: string;
+  try {
+    videoId = parseVideoId(args.video);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { content: [{ type: "text" as const, text: `❌ Invalid video: ${msg}` }], isError: true };
+  }
+
+  let comments: Awaited<ReturnType<typeof fetchComments>>;
+  try {
+    comments = await fetchComments(videoId, args.maxResults, args.sortBy);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { content: [{ type: "text" as const, text: `❌ ${msg}` }], isError: true };
+  }
 
   if (comments.length === 0) {
     return {
