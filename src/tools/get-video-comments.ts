@@ -25,6 +25,34 @@ export const getVideoCommentsSchema = z.object({
     .describe("Page number for pagination. Each page returns up to 20 comment threads. Use hasMore in the response to know if more pages exist."),
 });
 
+const commentReplySchema = z.object({
+  author: z.string(),
+  authorChannelUrl: z.string(),
+  text: z.string(),
+  likeCount: z.string(),
+  publishedAt: z.string(),
+});
+
+const commentThreadSchema = z.object({
+  author: z.string(),
+  authorChannelUrl: z.string(),
+  text: z.string(),
+  likeCount: z.string(),
+  publishedAt: z.string(),
+  replyCount: z.string(),
+  replies: z.array(commentReplySchema),
+});
+
+export const getVideoCommentsOutputSchema = {
+  videoId: z.string(),
+  page: z.number().int().min(1),
+  sortBy: z.enum(["time", "relevance"]),
+  totalFetched: z.number().int().min(0),
+  threadCount: z.number().int().min(0),
+  hasMore: z.boolean(),
+  threads: z.array(commentThreadSchema),
+};
+
 export async function getVideoComments(
   args: z.infer<typeof getVideoCommentsSchema>
 ) {
@@ -45,8 +73,19 @@ export async function getVideoComments(
   }
 
   if (result.threads.length === 0) {
+    const structuredContent = {
+      videoId,
+      page: result.page,
+      sortBy: args.sortBy,
+      totalFetched: result.totalFetched,
+      threadCount: 0,
+      hasMore: result.hasMore,
+      threads: [],
+    };
+
     return {
       content: [{ type: "text" as const, text: "No comments found for this video." }],
+      structuredContent,
     };
   }
 
@@ -74,5 +113,18 @@ export async function getVideoComments(
     lines.push("");
   }
 
-  return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+  const structuredContent = {
+    videoId,
+    page: result.page,
+    sortBy: args.sortBy,
+    totalFetched: result.totalFetched,
+    threadCount: result.threads.length,
+    hasMore: result.hasMore,
+    threads: result.threads,
+  };
+
+  return {
+    content: [{ type: "text" as const, text: lines.join("\n") }],
+    structuredContent,
+  };
 }

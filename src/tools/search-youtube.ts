@@ -33,6 +33,26 @@ export const searchYoutubeSchema = z.object({
     ),
 });
 
+const searchResultSchema = z.object({
+  videoId: z.string(),
+  title: z.string(),
+  description: z.string(),
+  channelTitle: z.string(),
+  publishedAt: z.string(),
+  thumbnailUrl: z.string(),
+  viewCount: z.string(),
+  duration: z.string(),
+});
+
+export const searchYoutubeOutputSchema = {
+  query: z.string(),
+  resultCount: z.number().int().min(0),
+  sortBy: z.enum(["relevance", "date", "viewCount", "rating"]),
+  uploadDate: z.enum(["any", "hour", "today", "week", "month", "year"]),
+  videoDuration: z.enum(["any", "short", "medium", "long"]),
+  results: z.array(searchResultSchema),
+};
+
 export async function searchYoutube(
   args: z.infer<typeof searchYoutubeSchema>
 ) {
@@ -51,10 +71,20 @@ export async function searchYoutube(
   }
 
   if (results.length === 0) {
+    const structuredContent = {
+      query: args.query,
+      resultCount: 0,
+      sortBy: args.sortBy,
+      uploadDate: args.uploadDate,
+      videoDuration: args.videoDuration,
+      results: [],
+    };
+
     return {
       content: [
         { type: "text" as const, text: "No results found for this search." },
       ],
+      structuredContent,
     };
   }
 
@@ -80,5 +110,15 @@ export async function searchYoutube(
     lines.push("");
   }
 
-  return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+  return {
+    content: [{ type: "text" as const, text: lines.join("\n") }],
+    structuredContent: {
+      query: args.query,
+      resultCount: results.length,
+      sortBy: args.sortBy,
+      uploadDate: args.uploadDate,
+      videoDuration: args.videoDuration,
+      results,
+    },
+  };
 }

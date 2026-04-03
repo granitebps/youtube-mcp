@@ -6,21 +6,29 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { createMcpExpressApp } from "@modelcontextprotocol/sdk/server/express.js";
 import rateLimit from "express-rate-limit";
 import type { Request, Response, NextFunction } from "express";
-import { getVideoInfo, getVideoInfoSchema } from "./tools/get-video-info.js";
+import {
+  getVideoInfo,
+  getVideoInfoOutputSchema,
+  getVideoInfoSchema,
+} from "./tools/get-video-info.js";
 import {
   getVideoComments,
+  getVideoCommentsOutputSchema,
   getVideoCommentsSchema,
 } from "./tools/get-video-comments.js";
 import {
   getVideoTranscript,
+  getVideoTranscriptOutputSchema,
   getVideoTranscriptSchema,
 } from "./tools/get-video-transcript.js";
 import {
   searchYoutube,
+  searchYoutubeOutputSchema,
   searchYoutubeSchema,
 } from "./tools/search-youtube.js";
 import {
   getTranscriptLanguages,
+  getTranscriptLanguagesOutputSchema,
   getTranscriptLanguagesSchema,
 } from "./tools/get-transcript-languages.js";
 import { closeClient } from "./utils/youtube-api.js";
@@ -37,30 +45,35 @@ function createServer(): McpServer {
     description:
       "Get YouTube video metadata: title, views, likes, comment count, upload date, duration, tags, and description. Input: YouTube URL or video ID. Returns error message if video is private, deleted, or unavailable.",
     inputSchema: getVideoInfoSchema.shape,
+    outputSchema: getVideoInfoOutputSchema,
   }, withLogging("get_video_info", getVideoInfo));
 
   server.registerTool("get_video_comments", {
     description:
       "Get YouTube video comments with replies. Returns comment text, author, likes, and date. Supports sorting by 'relevance' (top comments) or 'time' (newest). Returns error if comments are disabled.",
     inputSchema: getVideoCommentsSchema.shape,
+    outputSchema: getVideoCommentsOutputSchema,
   }, withLogging("get_video_comments", getVideoComments));
 
   server.registerTool("get_video_transcript", {
     description:
       "Get YouTube video transcript/captions (manual or auto-generated) with timestamps. Use 'lang' to specify language code (e.g. 'en', 'id'). Returns both timestamped and plain text versions. Returns error if captions are unavailable.",
     inputSchema: getVideoTranscriptSchema.shape,
+    outputSchema: getVideoTranscriptOutputSchema,
   }, withLogging("get_video_transcript", getVideoTranscript));
 
   server.registerTool("search_youtube", {
     description:
       "Search YouTube videos by query. Returns up to 50 results with title, channel, views, duration, and URL. Supports filtering by uploadDate (today/week/month/year) and videoDuration (short/medium/long), and sorting by relevance, date, viewCount, or rating.",
     inputSchema: searchYoutubeSchema.shape,
+    outputSchema: searchYoutubeOutputSchema,
   }, withLogging("search_youtube", searchYoutube));
 
   server.registerTool("get_transcript_languages", {
     description:
       "List all available caption/transcript languages for a YouTube video. Returns language codes and names for both manual and auto-generated captions. Call this first to discover available languages before fetching a transcript.",
     inputSchema: getTranscriptLanguagesSchema.shape,
+    outputSchema: getTranscriptLanguagesOutputSchema,
   }, withLogging("get_transcript_languages", getTranscriptLanguages));
 
   return server;

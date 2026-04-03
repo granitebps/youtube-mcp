@@ -30,6 +30,28 @@ export const getVideoTranscriptSchema = z.object({
     .describe("Segment index to start from (0-based). Use with maxSegments to paginate through long transcripts."),
 });
 
+const transcriptSegmentSchema = z.object({
+  index: z.number().int().min(0),
+  offsetSeconds: z.number(),
+  durationSeconds: z.number().nullable(),
+  timestamp: z.string(),
+  text: z.string(),
+});
+
+export const getVideoTranscriptOutputSchema = {
+  videoId: z.string(),
+  languageCode: z.string(),
+  available: z.boolean(),
+  totalSegments: z.number().int().min(0),
+  startSegment: z.number().int().min(0),
+  returnedSegments: z.number().int().min(0),
+  hasMore: z.boolean(),
+  nextStartSegment: z.number().int().min(0).nullable(),
+  plainText: z.string(),
+  message: z.string().optional(),
+  segments: z.array(transcriptSegmentSchema),
+};
+
 export async function getVideoTranscript(
   args: z.infer<typeof getVideoTranscriptSchema>
 ) {
@@ -47,8 +69,23 @@ export async function getVideoTranscript(
     });
 
     if (!segments || segments.length === 0) {
+      const structuredContent = {
+        videoId,
+        languageCode: args.lang,
+        available: false,
+        totalSegments: 0,
+        startSegment: 0,
+        returnedSegments: 0,
+        hasMore: false,
+        nextStartSegment: null,
+        plainText: "",
+        message: "No transcript available for this video.",
+        segments: [],
+      };
+
       return {
         content: [{ type: "text" as const, text: "No transcript available for this video." }],
+        structuredContent,
       };
     }
 
@@ -60,14 +97,21 @@ export async function getVideoTranscript(
 
     const hasMore = start + sliced.length < totalSegments;
     const nextStart = start + sliced.length;
+    const structuredSegments = sliced.map((seg, index) => ({
+      index: start + index,
+      offsetSeconds: seg.offset,
+      durationSeconds: typeof seg.duration === "number" ? seg.duration : null,
+      timestamp: formatTimestamp(seg.offset),
+      text: seg.text,
+    }));
+    const plainText = sliced.map((s) => s.text).join(" ");
 
     const lines: string[] = [
       `📝 Transcript for video ${videoId} (segments ${start + 1}–${start + sliced.length} of ${totalSegments}):\n`,
     ];
 
-    for (const seg of sliced) {
-      const timestamp = formatTimestamp(seg.offset);
-      lines.push(`[${timestamp}] ${seg.text}`);
+    for (const seg of structuredSegments) {
+      lines.push(`[${seg.timestamp}] ${seg.text}`);
     }
 
     if (hasMore) {
@@ -75,9 +119,23 @@ export async function getVideoTranscript(
     }
 
     lines.push("\n--- Plain text ---\n");
-    lines.push(sliced.map((s) => s.text).join(" "));
+    lines.push(plainText);
 
-    return { content: [{ type: "text" as const, text: lines.join("\n") }] };
+    return {
+      content: [{ type: "text" as const, text: lines.join("\n") }],
+      structuredContent: {
+        videoId,
+        languageCode: args.lang,
+        available: true,
+        totalSegments,
+        startSegment: start,
+        returnedSegments: structuredSegments.length,
+        hasMore,
+        nextStartSegment: hasMore ? nextStart : null,
+        plainText,
+        segments: structuredSegments,
+      },
+    };
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
 
@@ -92,6 +150,19 @@ export async function getVideoTranscript(
           type: "text" as const,
           text: `Transcript not available for this video. The video may have captions disabled or no captions in language "${args.lang}".`,
         }],
+        structuredContent: {
+          videoId,
+          languageCode: args.lang,
+          available: false,
+          totalSegments: 0,
+          startSegment: 0,
+          returnedSegments: 0,
+          hasMore: false,
+          nextStartSegment: null,
+          plainText: "",
+          message: `Transcript not available for this video. The video may have captions disabled or no captions in language "${args.lang}".`,
+          segments: [],
+        },
       };
     }
 

@@ -12,6 +12,7 @@ Supports both **stdio** (local) and **Streamable HTTP** (VPS/remote) transports.
 | `get_video_info` | Video metadata: title, views, likes, upload date, duration, tags, description |
 | `get_video_comments` | Comment threads with full replies, author info, and likes |
 | `get_video_transcript` | Transcripts (manual + auto-generated captions) with timestamps |
+| `get_transcript_languages` | Lists available manual and auto-generated caption languages |
 
 ## Prerequisites
 
@@ -229,24 +230,64 @@ Once connected, you can ask your AI agent things like:
 - *"Search for Node.js tutorials uploaded this week, sorted by views"*
 - *"Find the most popular React videos from the last month"*
 
+## Tool Response Format
+
+All tools return:
+
+- `content`: short human-readable text for chat-style MCP clients
+- `structuredContent`: JSON-shaped data for agents that need reliable fields
+
+The server is intentionally **JSON-first, text-second**. Agents should prefer `structuredContent` when they need to filter, transform, or chain tool results.
+
+Example shape from `get_video_info`:
+
+```json
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "📹 Example title\n\nChannel: Example channel\n..."
+    }
+  ],
+  "structuredContent": {
+    "videoId": "dQw4w9WgXcQ",
+    "title": "Example title",
+    "description": "Example description",
+    "channelName": "Example channel",
+    "channelId": "UC123",
+    "uploadedAt": "1 year ago",
+    "duration": "3m 33s",
+    "viewCount": "123456",
+    "likeCount": "7890",
+    "commentCount": "456",
+    "tags": ["music", "pop"],
+    "thumbnailUrl": "https://..."
+  }
+}
+```
+
 ## Tool Details
 
 ### `search_youtube`
 - **Input**: `query` (search text), `maxResults` (1-50, default 10), `sortBy` (`relevance` | `date` | `viewCount` | `rating`), `uploadDate` (`any` | `hour` | `today` | `week` | `month` | `year`), `videoDuration` (`any` | `short` | `medium` | `long`)
-- **Returns**: List of matching videos with title, channel, publish date, video ID, and URL
+- **Returns**: Human-readable summary in `content` plus structured JSON results in `structuredContent`
 
 ### `get_video_info`
 - **Input**: `video` (YouTube URL or video ID)
-- **Returns**: Title, channel, upload date, duration, views, likes, comment count, tags, thumbnail, description
+- **Returns**: Human-readable summary in `content` plus structured JSON metadata in `structuredContent`
 
 ### `get_video_comments`
-- **Input**: `video` (URL or ID), `maxResults` (1-100, default 20), `sortBy` (`relevance` or `time`)
-- **Returns**: Comment threads with author, text, likes, date, and nested replies
+- **Input**: `video` (URL or ID), `maxResults` (1-20, default 20), `sortBy` (`relevance` or `time`), `page` (default 1)
+- **Returns**: Human-readable summary in `content` plus structured JSON comment threads, pagination fields, and `hasMore` in `structuredContent`
 
 ### `get_video_transcript`
-- **Input**: `video` (URL or ID), `lang` (language code, default `en`)
-- **Returns**: Timestamped transcript segments + plain text version
+- **Input**: `video` (URL or ID), `lang` (language code, default `en`), `maxSegments` (default `0` for all), `startSegment` (default `0`)
+- **Returns**: Human-readable transcript in `content` plus structured JSON segments, plain text, and pagination metadata in `structuredContent`
 - **Note**: Does NOT require an API key — works via YouTube's internal caption system
+
+### `get_transcript_languages`
+- **Input**: `video` (YouTube URL or video ID)
+- **Returns**: Human-readable language list in `content` plus structured JSON language metadata in `structuredContent`
 
 ## Rate Limits
 
