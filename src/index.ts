@@ -35,11 +35,17 @@ import { closeClient } from "./utils/youtube-api.js";
 import { abortAll } from "./utils/abort.js";
 import { logger, withLogging } from "./utils/logger.js";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+
+/** Version reported to MCP clients; package.json is one level above dist/. */
+const packageVersion = (
+  JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as { version: string }
+).version;
 
 function createServer(): McpServer {
   const server = new McpServer({
     name: "youtube-mcp",
-    version: "1.0.0",
+    version: packageVersion,
   });
 
   server.registerTool("get_video_info", {
