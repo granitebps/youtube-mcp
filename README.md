@@ -255,16 +255,69 @@ Example shape from `get_video_info`:
     "description": "Example description",
     "channelName": "Example channel",
     "channelId": "UC123",
-    "uploadedAt": "1 year ago",
+    "uploadedAt": "Sep 14, 2017",
     "duration": "3m 33s",
+    "durationSeconds": 213,
     "viewCount": "123456",
     "likeCount": "7890",
-    "commentCount": "456",
+    "commentCount": null,
     "tags": ["music", "pop"],
     "thumbnailUrl": "https://..."
   }
 }
 ```
+
+Values YouTube did not provide are `null`, never placeholders such as `"0"`, `"N/A"` or `"Unknown"`.
+
+### Errors
+
+Failures return `isError: true`. The text starts with a code (`❌ [ACCESS_BLOCKED] ...`) and `_meta["youtube-mcp/error"]` carries the details:
+
+```json
+{
+  "isError": true,
+  "content": [{ "type": "text", "text": "❌ [ACCESS_BLOCKED] YouTube requires sign-in to access video C7OQHIpDlvA: Sign in to confirm you’re not a bot" }],
+  "_meta": {
+    "youtube-mcp/error": {
+      "code": "ACCESS_BLOCKED",
+      "message": "...",
+      "retryable": false,
+      "upstream": { "playabilityStatus": "LOGIN_REQUIRED", "reason": "Sign in to confirm you’re not a bot", "accessKind": "login_required" }
+    }
+  }
+}
+```
+
+The error is in `_meta`, not `structuredContent`, because MCP SDK clients validate any `structuredContent` against the tool's output schema, even on error results.
+
+| Code | Meaning |
+|------|---------|
+| `INVALID_INPUT` | Not a YouTube URL or 11-character video ID, or an invalid language code |
+| `ACCESS_BLOCKED` | YouTube refused this client: HTTP 429/403, CAPTCHA, consent page, sign-in or bot check. `upstream.accessKind` is `rate_limited`, `forbidden`, `login_required` or `consent_required`. Says nothing about whether the video exists or has captions |
+| `VIDEO_UNAVAILABLE` | YouTube reports the video as `ERROR`, `UNPLAYABLE`, private or offline. `upstream.reason` is YouTube's own text |
+| `CAPTIONS_UNAVAILABLE` / `LANGUAGE_UNAVAILABLE` | Used internally; transcript tools return these as `available: false` results, not errors |
+| `COMMENTS_UNAVAILABLE` | Comments are disabled or YouTube returned no comments section |
+| `PARSE_ERROR` | YouTube answered but the response could not be interpreted (layout change, wrong video ID returned) |
+| `LIMIT_EXCEEDED` | A configured size limit was hit |
+| `TIMEOUT` | A configured deadline expired; the underlying requests were aborted |
+| `CANCELLED` | The MCP client cancelled the request, or the server is shutting down |
+| `UPSTREAM_ERROR` | Other HTTP or network failure (`retryable: true`) |
+
+The server never retries on its own.
+
+## Configuration
+
+All settings are optional environment variables. Invalid values stop the server at startup with a message on stderr.
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `YT_INIT_TIMEOUT_MS` | `15000` | Deadline for creating the shared YouTube client |
+| `YT_REQUEST_TIMEOUT_MS` | `20000` | Deadline for one tool call's upstream work, including waiting for client init |
+| `YT_TRANSCRIPT_MAX_BYTES` | `5000000` | Maximum bytes read from each response fetched for captions |
+| `YT_TRANSCRIPT_MAX_SEGMENTS` | `50000` | Maximum caption segments processed from one track |
+| `YT_TRANSCRIPT_PAGE_MAX_SEGMENTS` | `500` | Maximum segments returned in one `get_video_transcript` response |
+
+When a deadline expires or the client cancels, the in-flight HTTP requests are aborted, not just abandoned.
 
 ## Tool Details
 
@@ -274,20 +327,29 @@ Example shape from `get_video_info`:
 
 ### `get_video_info`
 - **Input**: `video` (YouTube URL or video ID)
-- **Returns**: Human-readable summary in `content` plus structured JSON metadata in `structuredContent`
+- **Returns**: Human-readable summary in `content` plus structured JSON metadata in `structuredContent`, including `durationSeconds`. Metadata is returned even when YouTube refuses playback, as long as it provides the video details
 
 ### `get_video_comments`
 - **Input**: `video` (URL or ID), `maxResults` (1-20, default 20), `sortBy` (`relevance` or `time`), `page` (default 1)
 - **Returns**: Human-readable summary in `content` plus structured JSON comment threads, pagination fields, and `hasMore` in `structuredContent`
+- **Note**: `replies` contains only replies YouTube includes with the thread; `replyCount` is the full count. Fetching the rest would cost one request per thread
 
 ### `get_video_transcript`
-- **Input**: `video` (URL or ID), `lang` (language code, default `en`), `maxSegments` (default `0` for all), `startSegment` (default `0`)
-- **Returns**: Human-readable transcript in `content` plus structured JSON segments, plain text, and pagination metadata in `structuredContent`
-- **Note**: Does NOT require an API key — works via YouTube's internal caption system
+- **Input**: `video` (URL or ID), `lang` (optional language code; omitted means the first manual track, or the first auto-generated one if there is none), `maxSegments` (default `0`: as many as `YT_TRANSCRIPT_PAGE_MAX_SEGMENTS` allows), `startSegment` (default `0`)
+- **Returns**: Human-readable transcript in `content` plus structured JSON segments, plain text, and pagination metadata in `structuredContent`. Continue with `startSegment = nextStartSegment` and the returned `languageCode` as `lang` while `hasMore` is true. `isAutoGenerated` tells whether the track is YouTube's automatic captions
+- **No captions**: `available: false` with `reason: "NO_CAPTIONS"`, or `reason: "LANGUAGE_UNAVAILABLE"` plus `availableLanguages`. Access problems are errors, never `available: false`
+- **Note**: When a language has both manual and automatic tracks, the manual track is returned
+- **Note**: Does NOT require an API key — works via YouTube's internal caption system. A transcript is caption text only; it is not an analysis of the video's picture
 
 ### `get_transcript_languages`
 - **Input**: `video` (YouTube URL or video ID)
-- **Returns**: Human-readable language list in `content` plus structured JSON language metadata in `structuredContent`
+- **Returns**: Human-readable language list in `content` plus structured JSON language metadata in `structuredContent`. `available: false` means the video is playable and has no caption tracks; access problems are errors
+
+## Development
+
+```bash
+npm test   # builds, then runs the offline test suite (no network access)
+```
 
 ## Rate Limits
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { errorResult } from "../utils/errors.js";
 import { searchVideos } from "../utils/youtube-api.js";
 
 export const searchYoutubeSchema = z.object({
@@ -54,7 +55,8 @@ export const searchYoutubeOutputSchema = {
 };
 
 export async function searchYoutube(
-  args: z.infer<typeof searchYoutubeSchema>
+  args: z.infer<typeof searchYoutubeSchema>,
+  extra?: { signal?: AbortSignal }
 ) {
   let results: Awaited<ReturnType<typeof searchVideos>>;
   try {
@@ -64,10 +66,9 @@ export async function searchYoutube(
       sortBy: args.sortBy,
       uploadDate: args.uploadDate,
       videoDuration: args.videoDuration,
-    });
+    }, extra?.signal);
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { content: [{ type: "text" as const, text: `❌ ${msg}` }], isError: true };
+    return errorResult(err);
   }
 
   if (results.length === 0) {
