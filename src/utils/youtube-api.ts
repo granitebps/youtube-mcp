@@ -20,6 +20,7 @@ import {
   YouTubeError,
 } from "./errors.js";
 import { logger } from "./logger.js";
+import { TTLCache } from "./ttl-cache.js";
 
 // SearchFilters type from youtubei.js (not directly exported)
 interface SearchFilters {
@@ -102,37 +103,15 @@ export function closeClient(): void {
   _innertube = null;
 }
 
-// --- Simple TTL cache ---
-interface CacheEntry<T> {
-  value: T;
-  expiresAt: number;
-}
-
-class TTLCache<T> {
-  private store = new Map<string, CacheEntry<T>>();
-
-  get(key: string): T | undefined {
-    const entry = this.store.get(key);
-    if (!entry) return undefined;
-    if (Date.now() > entry.expiresAt) {
-      this.store.delete(key);
-      return undefined;
-    }
-    return entry.value;
-  }
-
-  set(key: string, value: T, ttlMs: number): void {
-    this.store.set(key, { value, expiresAt: Date.now() + ttlMs });
-  }
-
-  clear(): void {
-    this.store.clear();
-  }
-}
-
-const videoInfoCache = new TTLCache<VideoInfo>();
+// --- Caches ---
+const CACHE_MAX_ENTRIES = {
+  videoInfo: 500,
+  comments:  200,
+  search:    200,
+};
+const videoInfoCache = new TTLCache<VideoInfo>(CACHE_MAX_ENTRIES.videoInfo);
 // commentsCache declared after CommentPage interface below
-const searchCache = new TTLCache<SearchResult[]>();
+const searchCache = new TTLCache<SearchPage>(CACHE_MAX_ENTRIES.search);
 const CACHE_TTL = {
   videoInfo: 30 * 60 * 1000,   // 30 minutes
   comments:  10 * 60 * 1000,   // 10 minutes
@@ -261,7 +240,7 @@ export interface CommentPage {
   totalFetched: number;
 }
 
-const commentsCache = new TTLCache<CommentPage>();
+const commentsCache = new TTLCache<CommentPage>(CACHE_MAX_ENTRIES.comments);
 
 export function fetchComments(
   videoId: string,
@@ -366,45 +345,76 @@ export interface SearchOptions {
   videoDuration: "any" | "short" | "medium" | "long";
 }
 
+export interface SearchWarning {
+  code: "SORT_NOT_SUPPORTED" | "SORT_APPROXIMATED" | "UPLOAD_DATE_APPROXIMATED";
+  message: string;
+}
+
+export interface SearchPage {
+  results: SearchResult[];
+  warnings: SearchWarning[];
+}
+
+/**
+ * Map tool options onto youtubei.js search filters. YouTube's filters only offer
+ * upload dates from "today" up and ordering by relevance or popularity, so options
+ * that cannot be applied exactly produce a warning instead of being dropped silently.
+ */
+export function buildSearchFilters(options: Pick<SearchOptions, "sortBy" | "uploadDate" | "videoDuration">): {
+  filters: SearchFilters;
+  warnings: SearchWarning[];
+} {
+  const filters: SearchFilters = { type: "video" };
+  const warnings: SearchWarning[] = [];
+
+  if (options.uploadDate === "hour") {
+    filters.upload_date = "today";
+    warnings.push({
+      code: "UPLOAD_DATE_APPROXIMATED",
+      message: "YouTube search has no last-hour filter; results are limited to today instead.",
+    });
+  } else if (options.uploadDate !== "any") {
+    filters.upload_date = options.uploadDate;
+  }
+
+  if (options.videoDuration !== "any") {
+    const durationMap: Record<string, SearchFilters["duration"]> = {
+      short: "under_three_mins",
+      medium: "three_to_twenty_mins",
+      long: "over_twenty_mins",
+    };
+    filters.duration = durationMap[options.videoDuration];
+  }
+
+  if (options.sortBy === "viewCount") {
+    filters.prioritize = "popularity";
+  } else if (options.sortBy === "rating") {
+    filters.prioritize = "popularity";
+    warnings.push({
+      code: "SORT_APPROXIMATED",
+      message: "YouTube search cannot sort by rating; results are sorted by popularity instead.",
+    });
+  } else if (options.sortBy === "date") {
+    warnings.push({
+      code: "SORT_NOT_SUPPORTED",
+      message: "YouTube search cannot sort by upload date; results are in relevance order. Use uploadDate to limit results to recent uploads.",
+    });
+  }
+
+  return { filters, warnings };
+}
+
 export function searchVideos(
   options: SearchOptions,
   signal?: AbortSignal
-): Promise<SearchResult[]> {
+): Promise<SearchPage> {
   const cacheKey = JSON.stringify(options);
   const cached = searchCache.get(cacheKey);
   if (cached) return Promise.resolve(cached);
 
   return runWithDeadline(signal, config.requestTimeoutMs, "search_youtube", async (s) => {
     const yt = await getClient(s);
-
-    const filters: SearchFilters = { type: "video" };
-
-    if (options.uploadDate !== "any") {
-      const dateMap: Record<string, SearchFilters["upload_date"]> = {
-        today: "today",
-        week: "week",
-        month: "month",
-        year: "year",
-      };
-      if (dateMap[options.uploadDate]) {
-        filters.upload_date = dateMap[options.uploadDate];
-      }
-    }
-
-    if (options.videoDuration !== "any") {
-      const durationMap: Record<string, SearchFilters["duration"]> = {
-        short: "under_three_mins",
-        medium: "three_to_twenty_mins",
-        long: "over_twenty_mins",
-      };
-      if (durationMap[options.videoDuration]) {
-        filters.duration = durationMap[options.videoDuration];
-      }
-    }
-
-    if (options.sortBy === "viewCount" || options.sortBy === "rating") {
-      filters.prioritize = "popularity";
-    }
+    const { filters, warnings } = buildSearchFilters(options);
 
     let searchResults: Awaited<ReturnType<typeof yt.search>>;
     try {
@@ -439,8 +449,9 @@ export function searchVideos(
       });
     }
 
-    searchCache.set(cacheKey, results, CACHE_TTL.search);
-    return results;
+    const page: SearchPage = { results, warnings };
+    searchCache.set(cacheKey, page, CACHE_TTL.search);
+    return page;
   });
 }
 

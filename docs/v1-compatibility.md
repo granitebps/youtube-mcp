@@ -54,7 +54,9 @@ returned, or the first auto-generated track when there is no manual one.
 
 `get_video_comments` returns `videoId`, `page`, `sortBy`, `totalFetched`,
 `threadCount`, `hasMore`, and `threads`. `search_youtube` returns `query`,
-`resultCount`, the applied filters, and `results`.
+`resultCount`, the requested filters, `results`, and an optional `warnings`
+array (each with `code` and `message`) for options YouTube search cannot apply
+exactly.
 
 Successful calls provide MCP structured content plus a short human-readable
 text summary. Agents should read structured content.

@@ -2,6 +2,12 @@
 
 All notable changes will be documented in this file.
 
+## 1.0.1 - 2026-10-13
+
+- `search_youtube` no longer drops options YouTube cannot apply without saying so. `sortBy: "date"` keeps relevance order and `sortBy: "rating"` sorts by popularity, each with a warning; `uploadDate: "hour"` is applied as `today` with a warning. Warnings appear in a new optional `warnings` field and in the text.
+- Result caches have a size limit and drop expired entries, so a long-running server no longer keeps every distinct query in memory.
+- First release published by the GitHub workflow through npm trusted publishing, with provenance.
+
 ## 1.0.0 - 2026-10-13
 
 - First npm and MCP Registry release as `@granitebps/youtube-mcp`, with the `youtube-mcp` executable.
