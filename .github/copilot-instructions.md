@@ -7,6 +7,8 @@
 - `npm start` runs the built MCP server over stdio from `dist/index.js`.
 - `npm run start:http` runs the built server in Streamable HTTP mode. `node dist/index.js --http` is equivalent.
 - `npm run dev` and `npm run dev:http` do a one-time `tsc` build and then start the server; they are not watch-mode commands.
+- `npm run check` runs `npm test` plus the release checks: `check:release` (package, lockfile, and `server.json` versions agree; workflow policy), `check:package` (packed file allow-list), and `check:install` (installs the packed tarball and lists tools over stdio). CI runs it on Node 22.21.0 and 24.
+- Releases follow `RELEASE.md`: a pushed `v*` tag publishes npm, then the MCP Registry, then a GitHub release. Never create or push a release tag without explicit approval of the version and commit. Keep the version in `package.json`, `package-lock.json`, and `server.json` in sync, and add `docs/release-notes-vX.Y.Z.md` plus a `CHANGELOG.md` entry.
 - `npm test` builds and runs the offline suite in `test/*.test.mjs` with Node's built-in test runner against `dist/`. Tests replace `globalThis.fetch` with fakes from `test/helpers.mjs`; they never touch the network. Run one file with `npm run build && node --test test/transcript.test.mjs`.
 - There is no `lint` script.
 

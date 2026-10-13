@@ -1,6 +1,12 @@
-# YouTube MCP Server
+# YouTube MCP
 
-An MCP (Model Context Protocol) server that provides YouTube video data to AI agents like GitHub Copilot, Claude Desktop, and Cursor.
+[![CI](https://github.com/granitebps/youtube-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/granitebps/youtube-mcp/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/%40granitebps%2Fyoutube-mcp.svg)](https://www.npmjs.com/package/@granitebps/youtube-mcp)
+[![npm downloads](https://img.shields.io/npm/dm/%40granitebps%2Fyoutube-mcp.svg)](https://www.npmjs.com/package/@granitebps/youtube-mcp)
+[![MCP Registry](https://img.shields.io/badge/MCP-Registry-5A67D8.svg)](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.granitebps%2Fyoutube-mcp)
+[![License: ISC](https://img.shields.io/badge/License-ISC-yellow.svg)](LICENSE)
+
+YouTube MCP lets an MCP client read YouTube video metadata, caption transcripts, comments, and search results. It needs no YouTube API key or account.
 
 Supports both **stdio** (local) and **Streamable HTTP** (VPS/remote) transports.
 
@@ -9,36 +15,155 @@ Supports both **stdio** (local) and **Streamable HTTP** (VPS/remote) transports.
 | Tool | Description |
 |------|-------------|
 | `search_youtube` | Search videos with filters for upload date and popularity |
-| `get_video_info` | Video metadata: title, views, likes, upload date, duration, tags, description |
-| `get_video_comments` | Comment threads with full replies, author info, and likes |
+| `get_video_info` | Video metadata: title, channel, description, duration, views, likes, upload date, tags |
+| `get_video_comments` | Comment threads with author info, likes, and the replies YouTube includes |
 | `get_video_transcript` | Transcripts (manual + auto-generated captions) with timestamps |
 | `get_transcript_languages` | Lists available manual and auto-generated caption languages |
 
-## Prerequisites
+## Requirements
 
-- **Node.js 18+**
+- Node.js 22 or newer. CI checks Node 22.21.0 and Node 24.
 
-> **No YouTube API key required!** This server uses `youtubei.js` (YouTube's InnerTube API) for video info, comments, and search, and `youtube-transcript-plus` for transcripts. Both work without any API key or authentication.
+> **No YouTube API key required.** This server uses `youtubei.js` (YouTube's InnerTube API) for video info, comments, and search, and `youtube-transcript-plus` for transcripts. Neither needs an API key or authentication.
 
-## Setup
+## Quick start
+
+Your MCP client can run the published package without a clone:
 
 ```bash
-# Clone and install
-cd youtube-mcp
-npm install
+npx -y @granitebps/youtube-mcp
+```
 
-# Build
+The server uses stdio. Keep stdout reserved for MCP traffic.
+
+## Run from a cloned repository
+
+To develop the server or use a clone directly:
+
+```bash
+git clone https://github.com/granitebps/youtube-mcp.git
+cd youtube-mcp
+npm ci
 npm run build
 ```
 
----
+Point your MCP client at the compiled entry point:
 
-## Option 1: Local (stdio) — Default
+```text
+node /absolute/path/to/youtube-mcp/dist/index.js
+```
 
-This is the simplest setup. The MCP client spawns the server as a subprocess.
+Run `npm run build` after each source change. Do not use `src` or `npm run dev` as the client's stdio command; build output on stdout can corrupt MCP messages.
+
+## Client configuration
+
+Each example starts with the npm package, followed by the local equivalent. Replace `/absolute/path/to/youtube-mcp` with your clone's path. Settings from [Configuration](#configuration) can be added as environment variables.
+
+### Claude
+
+Add the npm package to Claude Code:
 
 ```bash
-npm start
+claude mcp add youtube -- npx -y @granitebps/youtube-mcp
+```
+
+For a local build:
+
+```bash
+claude mcp add youtube -- node /absolute/path/to/youtube-mcp/dist/index.js
+```
+
+Claude Code uses local scope by default. Add `--scope user` before `youtube` to make the server available across projects.
+
+Claude Desktop reads the same server from `claude_desktop_config.json` (on macOS, `~/Library/Application Support/Claude/claude_desktop_config.json`). Restart the app after editing the file.
+
+```json
+{
+  "mcpServers": {
+    "youtube": {
+      "command": "npx",
+      "args": ["-y", "@granitebps/youtube-mcp"]
+    }
+  }
+}
+```
+
+For a local build, replace `command` and `args` with:
+
+```json
+{
+  "command": "node",
+  "args": ["/absolute/path/to/youtube-mcp/dist/index.js"]
+}
+```
+
+### Codex
+
+Add the npm package to `~/.codex/config.toml`, or to `.codex/config.toml` in a trusted project:
+
+```toml
+[mcp_servers.youtube]
+command = "npx"
+args = ["-y", "@granitebps/youtube-mcp"]
+```
+
+For a local build:
+
+```toml
+[mcp_servers.youtube]
+command = "node"
+args = ["/absolute/path/to/youtube-mcp/dist/index.js"]
+```
+
+Restart Codex after editing the file.
+
+### OpenCode
+
+Add the npm package to `opencode.json` or `opencode.jsonc`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "youtube": {
+      "type": "local",
+      "command": ["npx", "-y", "@granitebps/youtube-mcp"],
+      "enabled": true
+    }
+  }
+}
+```
+
+For a local build, replace the `command` array with:
+
+```json
+{
+  "command": ["node", "/absolute/path/to/youtube-mcp/dist/index.js"]
+}
+```
+
+### Cursor
+
+Add the npm package to `.cursor/mcp.json` in a project, or to `~/.cursor/mcp.json` for global use:
+
+```json
+{
+  "mcpServers": {
+    "youtube": {
+      "command": "npx",
+      "args": ["-y", "@granitebps/youtube-mcp"]
+    }
+  }
+}
+```
+
+For a local build, replace `command` and `args` with:
+
+```json
+{
+  "command": "node",
+  "args": ["/absolute/path/to/youtube-mcp/dist/index.js"]
+}
 ```
 
 ### GitHub Copilot (VS Code)
@@ -50,39 +175,9 @@ Add to your VS Code `settings.json`:
   "mcp": {
     "servers": {
       "youtube": {
-        "command": "node",
-        "args": ["/absolute/path/to/youtube-mcp/dist/index.js"]
+        "command": "npx",
+        "args": ["-y", "@granitebps/youtube-mcp"]
       }
-    }
-  }
-}
-```
-
-### Claude Desktop
-
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
-
-```json
-{
-  "mcpServers": {
-    "youtube": {
-      "command": "node",
-      "args": ["/absolute/path/to/youtube-mcp/dist/index.js"]
-    }
-  }
-}
-```
-
-### Cursor
-
-Add to your Cursor MCP settings:
-
-```json
-{
-  "mcpServers": {
-    "youtube": {
-      "command": "node",
-      "args": ["/absolute/path/to/youtube-mcp/dist/index.js"]
     }
   }
 }
@@ -90,7 +185,7 @@ Add to your Cursor MCP settings:
 
 ---
 
-## Option 2: VPS Deployment (Streamable HTTP)
+## VPS deployment (Streamable HTTP)
 
 For remote deployment, the server runs as a persistent HTTP service using the **Streamable HTTP** transport (the current MCP standard, replacing the deprecated SSE transport).
 
@@ -98,9 +193,9 @@ For remote deployment, the server runs as a persistent HTTP service using the **
 
 ```bash
 # On your VPS
-git clone <your-repo-url> youtube-mcp
+git clone https://github.com/granitebps/youtube-mcp.git
 cd youtube-mcp
-npm install
+npm ci
 npm run build
 
 # Create .env (optional, for HTTP mode)
@@ -348,8 +443,17 @@ When a deadline expires or the client cancels, the in-flight HTTP requests are a
 ## Development
 
 ```bash
-npm test   # builds, then runs the offline test suite (no network access)
+npm test        # builds, then runs the offline test suite (no network access)
+npm run check   # tests plus release metadata, package contents, and tarball install checks
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Release verification
+
+The automated suite covers input parsing, configuration, error classification, cancellation, the compiled stdio entry point, release metadata, and installation from an npm tarball. It never calls YouTube. Live YouTube checks are manual and separate from CI.
+
+Maintainers follow the [release guide](RELEASE.md) for the approved-tag npm, MCP Registry, and GitHub release process.
 
 ## Rate Limits
 
@@ -360,4 +464,4 @@ This server uses YouTube's InnerTube API (the same API used by youtube.com). The
 
 ## License
 
-ISC
+[ISC](LICENSE). This project is unofficial and is not affiliated with YouTube or Google.
