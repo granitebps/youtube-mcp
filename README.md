@@ -419,6 +419,7 @@ When a deadline expires or the client cancels, the in-flight HTTP requests are a
 ### `search_youtube`
 - **Input**: `query` (search text), `maxResults` (1-50, default 10), `sortBy` (`relevance` | `date` | `viewCount` | `rating`), `uploadDate` (`any` | `hour` | `today` | `week` | `month` | `year`), `videoDuration` (`any` | `short` | `medium` | `long`)
 - **Returns**: Human-readable summary in `content` plus structured JSON results in `structuredContent`
+- **Note**: YouTube search only orders by relevance or popularity and only filters uploads from `today` up. `sortBy: "date"` keeps relevance order, `sortBy: "rating"` sorts by popularity, and `uploadDate: "hour"` is applied as `today`. Each case adds an entry to the optional `warnings` array (`code`, `message`)
 
 ### `get_video_info`
 - **Input**: `video` (YouTube URL or video ID)

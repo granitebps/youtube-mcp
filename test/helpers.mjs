@@ -16,7 +16,7 @@ export function installFakeFetch(routes) {
   globalThis.fetch = (input, init = {}) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const method = init.method ?? (typeof input === "object" && "method" in input ? input.method : "GET");
-    calls.push({ url, method });
+    calls.push({ url, method, body: typeof init.body === "string" ? init.body : undefined });
     const signal = init.signal;
     if (signal?.aborted) return Promise.reject(signal.reason);
 
