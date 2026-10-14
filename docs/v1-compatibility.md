@@ -12,7 +12,8 @@ must be explicitly documented.
 - The executable is `youtube-mcp` from the `@granitebps/youtube-mcp` npm
   package.
 - Node.js 22 or newer is the declared supported runtime.
-- No YouTube API key or account is used.
+- By default no YouTube API key or account is used. From 1.1.0, an API key is
+  used only when `YT_PROVIDER=api` is set.
 
 ## Tools
 
@@ -28,6 +29,7 @@ link, embed, `v`, shorts, or live form.
 | `get_video_transcript`     | `video`; optional `lang` (2–10 characters); integer `maxSegments` ≥ 0, default 0; integer `startSegment` ≥ 0, default 0                                    | One page of one caption track             |
 | `get_video_comments`       | `video`; `maxResults` 1–20, default 20; `sortBy` `relevance` or `time`; `page` ≥ 1, default 1                                                              | One page of comment threads               |
 | `search_youtube`           | non-empty `query`; `maxResults` 1–50, default 10; `sortBy` `relevance`, `date`, `viewCount`, or `rating`; `uploadDate`; `videoDuration`                    | Search results                            |
+| `get_server_info`          | none (added in 1.1.0)                                                                                                                                     | Version, provider, and backend per tool   |
 
 ## Result shapes
 
@@ -58,6 +60,16 @@ returned, or the first auto-generated track when there is no manual one.
 array (each with `code` and `message`) for options YouTube search cannot apply
 exactly.
 
+`get_server_info` returns `name`, `version`, `provider` (`innertube` or `api`),
+`authenticated`, `exactSearchFilters`, and `tools`, a map from tool name to the
+backend that serves it.
+
+With the opt-in `api` provider, `get_video_info`, `get_video_comments`, and
+`search_youtube` keep the same fields and types. Date fields (`uploadedAt`,
+`publishedAt`) carry ISO 8601 timestamps instead of display text, and search
+`viewCount` is a plain number string. The default `innertube` provider keeps
+the 1.0 formats.
+
 Successful calls provide MCP structured content plus a short human-readable
 text summary. Agents should read structured content.
 
@@ -80,7 +92,8 @@ Tool failures set `isError: true`. The text begins with `❌ [CODE]`, and
 stable error codes are `INVALID_INPUT`, `ACCESS_BLOCKED`, `VIDEO_UNAVAILABLE`,
 `COMMENTS_UNAVAILABLE`, `PARSE_ERROR`, `LIMIT_EXCEEDED`, `TIMEOUT`, `CANCELLED`,
 and `UPSTREAM_ERROR`. `accessKind` is `rate_limited`, `forbidden`,
-`login_required`, or `consent_required`. An access failure is never reported as
+`login_required`, `consent_required`, or (from 1.1.0, `api` provider only)
+`quota_exceeded`. An access failure is never reported as
 a missing video or missing captions.
 
 ## Configuration
@@ -89,6 +102,11 @@ The environment variables `YT_INIT_TIMEOUT_MS`, `YT_REQUEST_TIMEOUT_MS`,
 `YT_TRANSCRIPT_MAX_BYTES`, `YT_TRANSCRIPT_MAX_SEGMENTS`, and
 `YT_TRANSCRIPT_PAGE_MAX_SEGMENTS` accept positive integers. Invalid values stop
 the server at startup. Defaults may change in minor releases.
+
+`YT_PROVIDER` is `innertube` (default) or `api`; `api` requires
+`YOUTUBE_API_KEY`. An unknown provider or a missing key stops the server at
+startup. The provider selects the backend for video info, comments, and search;
+transcript tools always use the same backend.
 
 ## Compatible changes within 1.x
 
