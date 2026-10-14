@@ -20,14 +20,11 @@
         {
           "name": "YT_PROVIDER",
           "description": "Provider for video info, comments, and search: \"innertube\" (default, no key) or \"api\" (YouTube Data API v3). Transcripts always use youtube-transcript-plus.",
-          "isRequired": false,
-          "isSecret": false,
           "default": "innertube"
         },
         {
           "name": "YOUTUBE_API_KEY",
           "description": "YouTube Data API v3 key. Required when YT_PROVIDER is \"api\".",
-          "isRequired": false,
           "isSecret": true
         }
       ]
