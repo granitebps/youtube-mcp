@@ -1,7 +1,7 @@
 import { z } from "zod";
+import { getProvider } from "../providers/factory.js";
 import { errorResult, YouTubeError } from "../utils/errors.js";
 import { parseVideoId } from "../utils/parse-video-id.js";
-import { fetchVideoInfo } from "../utils/youtube-api.js";
 
 export const getVideoInfoSchema = z.object({
   video: z
@@ -17,7 +17,7 @@ export const getVideoInfoOutputSchema = {
   description: z.string().nullable().describe("null when YouTube did not provide a description; empty string when it is empty"),
   channelName: z.string().nullable(),
   channelId: z.string().nullable(),
-  uploadedAt: z.string().nullable().describe("Display text such as 'Sep 14, 2017' or 'Premiered May 27, 2020'"),
+  uploadedAt: z.string().nullable().describe("innertube provider: display text such as 'Sep 14, 2017' or 'Premiered May 27, 2020'. api provider: ISO 8601 timestamp"),
   duration: z.string().nullable().describe("Human-readable duration, e.g. '1m 21s'; null when unknown or live"),
   durationSeconds: z.number().int().min(1).nullable().describe("Duration in seconds; null when unknown or live"),
   viewCount: z.string().nullable(),
@@ -40,7 +40,7 @@ export async function getVideoInfo(
   }
 
   try {
-    const info = await fetchVideoInfo(videoId, extra?.signal);
+    const info = await (await getProvider()).getVideoInfo(videoId, extra?.signal);
     const structuredContent = { ...info };
     const show = (v: string | null) => (v === null ? "unknown" : isNaN(Number(v)) ? v : Number(v).toLocaleString());
 

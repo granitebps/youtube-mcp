@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { getProvider } from "../providers/factory.js";
 import { errorResult } from "../utils/errors.js";
-import { searchVideos } from "../utils/youtube-api.js";
+import type { SearchPage } from "../utils/youtube-api.js";
 
 export const searchYoutubeSchema = z.object({
   query: z
@@ -18,19 +19,19 @@ export const searchYoutubeSchema = z.object({
     .enum(["relevance", "date", "viewCount", "rating"])
     .default("relevance")
     .describe(
-      "Sort order: 'relevance' (default) or 'viewCount' (most popular). YouTube search cannot sort by 'date' (results stay in relevance order) or 'rating' (sorted by popularity instead); both return a warning."
+      "Sort order: 'relevance' (default), 'date', 'viewCount' (most popular), or 'rating'. With the default innertube provider, 'date' keeps relevance order and 'rating' sorts by popularity, each with a warning; the api provider applies all four exactly."
     ),
   uploadDate: z
     .enum(["any", "hour", "today", "week", "month", "year"])
     .default("any")
     .describe(
-      "Filter by upload date: 'any', 'today', 'week', 'month', 'year'. 'hour' is not available on YouTube and is applied as 'today' with a warning."
+      "Filter by upload date: 'any', 'hour', 'today', 'week', 'month', 'year'. With the innertube provider, 'hour' is applied as 'today' with a warning."
     ),
   videoDuration: z
     .enum(["any", "short", "medium", "long"])
     .default("any")
     .describe(
-      "Filter by duration: 'any', 'short' (<3min), 'medium' (3-20min), 'long' (>20min)"
+      "Filter by duration: 'any', 'short', 'medium', 'long'. innertube: <3min, 3-20min, >20min. api: <4min, 4-20min, >20min"
     ),
 });
 
@@ -62,9 +63,9 @@ export async function searchYoutube(
   args: z.infer<typeof searchYoutubeSchema>,
   extra?: { signal?: AbortSignal }
 ) {
-  let page: Awaited<ReturnType<typeof searchVideos>>;
+  let page: SearchPage;
   try {
-    page = await searchVideos({
+    page = await (await getProvider()).search({
       query: args.query,
       maxResults: args.maxResults,
       sortBy: args.sortBy,

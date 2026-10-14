@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { getProvider } from "../providers/factory.js";
 import { errorResult, YouTubeError } from "../utils/errors.js";
 import { parseVideoId } from "../utils/parse-video-id.js";
-import { fetchComments } from "../utils/youtube-api.js";
+import type { CommentPage } from "../utils/youtube-api.js";
 
 export const getVideoCommentsSchema = z.object({
   video: z
@@ -66,9 +67,12 @@ export async function getVideoComments(
     return errorResult(new YouTubeError("INVALID_INPUT", `Invalid video: ${msg}`));
   }
 
-  let result: Awaited<ReturnType<typeof fetchComments>>;
+  let result: CommentPage;
   try {
-    result = await fetchComments(videoId, args.maxResults, args.sortBy, args.page, extra?.signal);
+    result = await (await getProvider()).getComments(
+      { videoId, maxResults: args.maxResults, sortBy: args.sortBy, page: args.page },
+      extra?.signal,
+    );
   } catch (err: unknown) {
     return errorResult(err);
   }

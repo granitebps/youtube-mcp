@@ -2,6 +2,12 @@
 
 All notable changes will be documented in this file.
 
+## 1.1.0 - 2026-10-14
+
+- Added an optional official YouTube Data API v3 provider. `YT_PROVIDER=api` with `YOUTUBE_API_KEY` serves `get_video_info`, `get_video_comments`, and `search_youtube` through the API, which works from datacenter IPs that YouTube blocks for InnerTube. The default `innertube` provider is unchanged. Transcript tools always use `youtube-transcript-plus`.
+- With the `api` provider, `search_youtube` applies every `sortBy` and `uploadDate` option exactly; dates are ISO 8601 timestamps. Quota exhaustion is reported as `ACCESS_BLOCKED` with the new `accessKind: "quota_exceeded"`.
+- Added `get_server_info`, which reports the version, the active provider, and the backend serving each tool.
+
 ## 1.0.1 - 2026-10-13
 
 - `search_youtube` no longer drops options YouTube cannot apply without saying so. `sortBy: "date"` keeps relevance order and `sortBy: "rating"` sorts by popularity, each with a warning; `uploadDate: "hour"` is applied as `today` with a warning. Warnings appear in a new optional `warnings` field and in the text.

@@ -5,6 +5,8 @@ import { loadConfig } from "../dist/utils/config.js";
 test("defaults apply when env is empty", () => {
   const c = loadConfig({});
   assert.deepEqual(c, {
+    provider: "innertube",
+    youtubeApiKey: null,
     initTimeoutMs: 15000,
     requestTimeoutMs: 20000,
     transcriptMaxBytes: 5000000,
@@ -32,4 +34,19 @@ test("invalid values fail fast", () => {
   for (const bad of ["0", "-5", "1.5", "abc", "10ms", "99999999999999999999"]) {
     assert.throws(() => loadConfig({ YT_REQUEST_TIMEOUT_MS: bad }), /Invalid YT_REQUEST_TIMEOUT_MS/, bad);
   }
+});
+
+test("YT_PROVIDER selects the provider; api requires YOUTUBE_API_KEY", () => {
+  assert.equal(loadConfig({ YT_PROVIDER: "innertube" }).provider, "innertube");
+  assert.deepEqual(
+    (({ provider, youtubeApiKey }) => ({ provider, youtubeApiKey }))(loadConfig({ YT_PROVIDER: " API ", YOUTUBE_API_KEY: " key " })),
+    { provider: "api", youtubeApiKey: "key" },
+  );
+  assert.throws(() => loadConfig({ YT_PROVIDER: "api" }), /YOUTUBE_API_KEY is required/);
+  assert.throws(() => loadConfig({ YT_PROVIDER: "api", YOUTUBE_API_KEY: "  " }), /YOUTUBE_API_KEY is required/);
+  assert.throws(() => loadConfig({ YT_PROVIDER: "official" }), /Invalid YT_PROVIDER/);
+});
+
+test("YOUTUBE_API_KEY is ignored unless the api provider is selected", () => {
+  assert.equal(loadConfig({ YOUTUBE_API_KEY: "key" }).youtubeApiKey, null);
 });
