@@ -16,7 +16,7 @@ export type ErrorCode =
   | "CANCELLED"
   | "UPSTREAM_ERROR";
 
-export type AccessKind = "rate_limited" | "forbidden" | "login_required" | "consent_required";
+export type AccessKind = "rate_limited" | "forbidden" | "login_required" | "consent_required" | "quota_exceeded";
 
 export interface UpstreamDetails {
   httpStatus?: number;

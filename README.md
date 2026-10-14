@@ -6,7 +6,7 @@
 [![MCP Registry](https://img.shields.io/badge/MCP-Registry-5A67D8.svg)](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.granitebps%2Fyoutube-mcp)
 [![License: ISC](https://img.shields.io/badge/License-ISC-yellow.svg)](LICENSE)
 
-YouTube MCP lets an MCP client read YouTube video metadata, caption transcripts, comments, and search results. It needs no YouTube API key or account.
+YouTube MCP lets an MCP client read YouTube video metadata, caption transcripts, comments, and search results. By default it needs no YouTube API key or account; an optional [official YouTube Data API provider](#providers) serves metadata, comments, and search with an API key.
 
 Supports both **stdio** (local) and **Streamable HTTP** (VPS/remote) transports.
 
@@ -19,12 +19,13 @@ Supports both **stdio** (local) and **Streamable HTTP** (VPS/remote) transports.
 | `get_video_comments` | Comment threads with author info, likes, and the replies YouTube includes |
 | `get_video_transcript` | Transcripts (manual + auto-generated captions) with timestamps |
 | `get_transcript_languages` | Lists available manual and auto-generated caption languages |
+| `get_server_info` | Server version, active provider, and the backend serving each tool |
 
 ## Requirements
 
 - Node.js 22 or newer. CI checks Node 22.21.0 and Node 24.
 
-> **No YouTube API key required.** This server uses `youtubei.js` (YouTube's InnerTube API) for video info, comments, and search, and `youtube-transcript-plus` for transcripts. Neither needs an API key or authentication.
+> **No YouTube API key required by default.** The default `innertube` provider uses `youtubei.js` (YouTube's InnerTube API) for video info, comments, and search. Transcripts always use `youtube-transcript-plus`. Neither needs an API key or authentication. See [Providers](#providers) for the optional official API.
 
 ## Quick start
 
@@ -202,6 +203,8 @@ npm run build
 cp .env.example .env
 # Uncomment TRANSPORT=http, PORT, HOST as needed
 ```
+
+YouTube often blocks datacenter IPs. If `get_video_info` returns `ACCESS_BLOCKED` with "Sign in to confirm you're not a bot", set `YT_PROVIDER=api` and `YOUTUBE_API_KEY` to serve metadata, comments, and search through the official API. See [Providers](#providers).
 
 ### 2. Run with HTTP transport
 
@@ -388,7 +391,7 @@ The error is in `_meta`, not `structuredContent`, because MCP SDK clients valida
 | Code | Meaning |
 |------|---------|
 | `INVALID_INPUT` | Not a YouTube URL or 11-character video ID, or an invalid language code |
-| `ACCESS_BLOCKED` | YouTube refused this client: HTTP 429/403, CAPTCHA, consent page, sign-in or bot check. `upstream.accessKind` is `rate_limited`, `forbidden`, `login_required` or `consent_required`. Says nothing about whether the video exists or has captions |
+| `ACCESS_BLOCKED` | YouTube refused this client: HTTP 429/403, CAPTCHA, consent page, sign-in or bot check. `upstream.accessKind` is `rate_limited`, `forbidden`, `login_required`, `consent_required`, or `quota_exceeded` (official API quota used up). Says nothing about whether the video exists or has captions |
 | `VIDEO_UNAVAILABLE` | YouTube reports the video as `ERROR`, `UNPLAYABLE`, private or offline. `upstream.reason` is YouTube's own text |
 | `CAPTIONS_UNAVAILABLE` / `LANGUAGE_UNAVAILABLE` | Used internally; transcript tools return these as `available: false` results, not errors |
 | `COMMENTS_UNAVAILABLE` | Comments are disabled or YouTube returned no comments section |
@@ -400,12 +403,51 @@ The error is in `_meta`, not `structuredContent`, because MCP SDK clients valida
 
 The server never retries on its own.
 
+## Providers
+
+`YT_PROVIDER` selects the backend for `get_video_info`, `get_video_comments`, and `search_youtube`. `get_video_transcript` and `get_transcript_languages` always use `youtube-transcript-plus`, whichever provider is active. `get_server_info` reports the active provider.
+
+| Provider | Select with | Needs | Notes |
+|----------|-------------|-------|-------|
+| InnerTube | Default, or `YT_PROVIDER=innertube` | Nothing | Uses YouTube's internal API through `youtubei.js`. Free, but YouTube often blocks datacenter IPs (VPS, cloud) with "Sign in to confirm you're not a bot" |
+| Official API | `YT_PROVIDER=api` | `YOUTUBE_API_KEY` | Uses the [YouTube Data API v3](https://developers.google.com/youtube/v3). Works from any IP within your Google Cloud project's daily quota |
+
+The Data API cannot download captions of videos you do not own, so it has no transcript support. On a blocked IP, the transcript tools still return `ACCESS_BLOCKED` with either provider.
+
+### Using the official API
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), create a project, enable **YouTube Data API v3**, and create an API key. Restricting the key to that API is recommended.
+2. Start the server with:
+
+```bash
+YT_PROVIDER=api YOUTUBE_API_KEY=your_api_key npx -y @granitebps/youtube-mcp
+```
+
+Quota ([costs](https://developers.google.com/youtube/v3/determine_quota_cost)): the default allocation is 10,000 units per day, plus a separate allowance of 100 `search.list` calls per day.
+
+| Tool | API calls |
+|------|-----------|
+| `get_video_info` | `videos.list`: 1 unit |
+| `get_video_comments` | `commentThreads.list`: 1 unit per page. `page: N` walks the N-1 pages before it, so it costs N units |
+| `search_youtube` | `search.list` (search allowance) plus one `videos.list` for views and durations: 1 unit |
+
+Results are cached as with the default provider (video info 30 min, comments 10 min, search 15 min), so repeated calls cost nothing. A used-up quota returns `ACCESS_BLOCKED` with `upstream.accessKind: "quota_exceeded"`; an invalid key or disabled API returns `ACCESS_BLOCKED` with `accessKind: "forbidden"`.
+
+Differences from the default provider:
+
+- `uploadedAt` (`get_video_info`) and `publishedAt` (comments, search) are ISO 8601 timestamps instead of display text such as "Sep 14, 2017" or "2 days ago"
+- Search `viewCount` is a plain number such as `"1234"` instead of "1.2K views", and `duration` uses the same format as `get_video_info` (`"3m 5s"`)
+- `search_youtube` applies all `sortBy` and `uploadDate` values exactly and never returns `warnings`. `videoDuration: "short"` means under 4 minutes and `medium` 4 to 20 minutes (YouTube's API definitions)
+- `get_video_comments` returns only the replies the API includes with each thread (a subset); `replyCount` is the full count
+
 ## Configuration
 
-All settings are optional environment variables. Invalid values stop the server at startup with a message on stderr.
+All settings are optional environment variables, except `YOUTUBE_API_KEY` when `YT_PROVIDER=api`. Invalid values stop the server at startup with a message on stderr.
 
 | Variable | Default | Effect |
 |----------|---------|--------|
+| `YT_PROVIDER` | `innertube` | Provider for video info, comments, and search: `innertube` or `api`. See [Providers](#providers) |
+| `YOUTUBE_API_KEY` | none | YouTube Data API v3 key. Required when `YT_PROVIDER=api`, ignored otherwise |
 | `YT_INIT_TIMEOUT_MS` | `15000` | Deadline for creating the shared YouTube client |
 | `YT_REQUEST_TIMEOUT_MS` | `20000` | Deadline for one tool call's upstream work, including waiting for client init |
 | `YT_TRANSCRIPT_MAX_BYTES` | `5000000` | Maximum bytes read from each response fetched for captions |
@@ -419,7 +461,7 @@ When a deadline expires or the client cancels, the in-flight HTTP requests are a
 ### `search_youtube`
 - **Input**: `query` (search text), `maxResults` (1-50, default 10), `sortBy` (`relevance` | `date` | `viewCount` | `rating`), `uploadDate` (`any` | `hour` | `today` | `week` | `month` | `year`), `videoDuration` (`any` | `short` | `medium` | `long`)
 - **Returns**: Human-readable summary in `content` plus structured JSON results in `structuredContent`
-- **Note**: YouTube search only orders by relevance or popularity and only filters uploads from `today` up. `sortBy: "date"` keeps relevance order, `sortBy: "rating"` sorts by popularity, and `uploadDate: "hour"` is applied as `today`. Each case adds an entry to the optional `warnings` array (`code`, `message`)
+- **Note**: With the default `innertube` provider, YouTube search only orders by relevance or popularity and only filters uploads from `today` up. `sortBy: "date"` keeps relevance order, `sortBy: "rating"` sorts by popularity, and `uploadDate: "hour"` is applied as `today`. Each case adds an entry to the optional `warnings` array (`code`, `message`). The `api` provider applies every option exactly
 
 ### `get_video_info`
 - **Input**: `video` (YouTube URL or video ID)
@@ -441,6 +483,10 @@ When a deadline expires or the client cancels, the in-flight HTTP requests are a
 - **Input**: `video` (YouTube URL or video ID)
 - **Returns**: Human-readable language list in `content` plus structured JSON language metadata in `structuredContent`. `available: false` means the video is playable and has no caption tracks; access problems are errors
 
+### `get_server_info`
+- **Input**: none
+- **Returns**: `name`, `version`, `provider` (`innertube` or `api`), `authenticated`, `exactSearchFilters`, and `tools`, a map from each tool to the backend serving it
+
 ## Development
 
 ```bash
@@ -458,10 +504,12 @@ Maintainers follow the [release guide](RELEASE.md) for the approved-tag npm, MCP
 
 ## Rate Limits
 
-This server uses YouTube's InnerTube API (the same API used by youtube.com). There are **no official API quotas**, but:
+The default `innertube` provider and the transcript tools use YouTube's internal APIs (the same ones youtube.com uses). There are **no official API quotas**, but:
 - Heavy automated usage may trigger CAPTCHAs or temporary blocks
+- Requests from datacenter IPs (VPS, cloud) are often blocked outright
 - Use responsibly — add delays between bulk requests if needed
-- All tools are free with no API key required
+
+The `api` provider is limited by your Google Cloud project's YouTube Data API quota instead. See [Providers](#providers).
 
 ## License
 

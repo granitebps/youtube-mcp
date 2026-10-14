@@ -19,6 +19,7 @@ import {
   errorFromPlayability,
   YouTubeError,
 } from "./errors.js";
+import { decodeHtmlEntities, formatDuration } from "./format.js";
 import { logger } from "./logger.js";
 import { TTLCache } from "./ttl-cache.js";
 
@@ -676,30 +677,4 @@ function classifyTranscriptError(err: unknown, videoId: string, ctx: CallContext
     return new YouTubeError("PARSE_ERROR", `Caption track could not be used: ${err.message}`);
   }
   return new YouTubeError("UPSTREAM_ERROR", `Transcript request failed: ${err.message}`);
-}
-
-const NAMED_ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: "\u00a0" };
-
-function decodeHtmlEntities(text: string): string {
-  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, entity: string) => {
-    if (entity[0] === "#") {
-      const code = entity[1] === "x" || entity[1] === "X" ? parseInt(entity.slice(2), 16) : parseInt(entity.slice(1), 10);
-      return Number.isInteger(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match;
-    }
-    return NAMED_ENTITIES[entity.toLowerCase()] ?? match;
-  });
-}
-
-/** Convert duration in seconds to human-readable format */
-function formatDuration(seconds: number): string {
-  if (seconds <= 0) return "0s";
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = seconds % 60;
-
-  const h = hours > 0 ? `${hours}h ` : "";
-  const m = minutes > 0 ? `${minutes}m ` : "";
-  const s = secs > 0 ? `${secs}s` : "";
-
-  return `${h}${m}${s}`.trim() || "0s";
 }

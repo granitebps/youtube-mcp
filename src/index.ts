@@ -31,6 +31,11 @@ import {
   getTranscriptLanguagesOutputSchema,
   getTranscriptLanguagesSchema,
 } from "./tools/get-transcript-languages.js";
+import {
+  createGetServerInfo,
+  getServerInfoOutputSchema,
+  getServerInfoSchema,
+} from "./tools/get-server-info.js";
 import { closeClient } from "./utils/youtube-api.js";
 import { abortAll } from "./utils/abort.js";
 import { logger, withLogging } from "./utils/logger.js";
@@ -50,14 +55,14 @@ function createServer(): McpServer {
 
   server.registerTool("get_video_info", {
     description:
-      "Get YouTube video metadata: title, channel, description, duration (text and seconds), views, likes, comment count, upload date, and tags. Unknown values are null. Input: YouTube URL or video ID. Errors carry a code (e.g. ACCESS_BLOCKED, VIDEO_UNAVAILABLE, TIMEOUT) in _meta[\"youtube-mcp/error\"] and as a [CODE] text prefix.",
+      "Get YouTube video metadata: title, channel, description, duration (text and seconds), views, likes, comment count, upload date, and tags. Unknown values are null. Served by the provider selected with YT_PROVIDER (see get_server_info). Input: YouTube URL or video ID. Errors carry a code (e.g. ACCESS_BLOCKED, VIDEO_UNAVAILABLE, TIMEOUT) in _meta[\"youtube-mcp/error\"] and as a [CODE] text prefix.",
     inputSchema: getVideoInfoSchema.shape,
     outputSchema: getVideoInfoOutputSchema,
   }, withLogging("get_video_info", getVideoInfo));
 
   server.registerTool("get_video_comments", {
     description:
-      "Get YouTube video comments with replies. Returns comment text, author, likes, and date. Supports sorting by 'relevance' (top comments) or 'time' (newest). Returns error if comments are disabled.",
+      "Get YouTube video comments with replies. Returns comment text, author, likes, and date. Supports sorting by 'relevance' (top comments) or 'time' (newest). Returns error if comments are disabled. Served by the provider selected with YT_PROVIDER.",
     inputSchema: getVideoCommentsSchema.shape,
     outputSchema: getVideoCommentsOutputSchema,
   }, withLogging("get_video_comments", getVideoComments));
@@ -71,7 +76,7 @@ function createServer(): McpServer {
 
   server.registerTool("search_youtube", {
     description:
-      "Search YouTube videos by query. Returns up to 50 results with title, channel, views, duration, and URL. Supports filtering by uploadDate (today/week/month/year) and videoDuration (short/medium/long), and sorting by relevance, date, viewCount, or rating.",
+      "Search YouTube videos by query. Returns up to 50 results with title, channel, views, duration, and URL. Supports filtering by uploadDate (today/week/month/year) and videoDuration (short/medium/long), and sorting by relevance, date, viewCount, or rating. Served by the provider selected with YT_PROVIDER; with the default innertube provider some options are approximated and reported in warnings.",
     inputSchema: searchYoutubeSchema.shape,
     outputSchema: searchYoutubeOutputSchema,
   }, withLogging("search_youtube", searchYoutube));
@@ -82,6 +87,13 @@ function createServer(): McpServer {
     inputSchema: getTranscriptLanguagesSchema.shape,
     outputSchema: getTranscriptLanguagesOutputSchema,
   }, withLogging("get_transcript_languages", getTranscriptLanguages));
+
+  server.registerTool("get_server_info", {
+    description:
+      "Report the server version, the active provider (innertube or api) for video info, comments, and search, and which backend serves each tool. Transcript tools always use youtube-transcript-plus.",
+    inputSchema: getServerInfoSchema.shape,
+    outputSchema: getServerInfoOutputSchema,
+  }, withLogging("get_server_info", createGetServerInfo(packageVersion)));
 
   return server;
 }

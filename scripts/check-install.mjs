@@ -120,6 +120,7 @@ try {
   const tools = await client.listTools();
   const names = tools.tools.map((tool) => tool.name).sort();
   const expected = [
+    "get_server_info",
     "get_transcript_languages",
     "get_video_comments",
     "get_video_info",
