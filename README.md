@@ -10,6 +10,25 @@ YouTube MCP lets an MCP client read YouTube video metadata, caption transcripts,
 
 Supports both **stdio** (local) and **Streamable HTTP** (VPS/remote) transports.
 
+## Access model
+
+This is an independent, unofficial open-source project. It is not affiliated with,
+endorsed by, or sponsored by YouTube or Google.
+
+- The default `innertube` provider serves metadata, comments, and search through
+  `youtubei.js`, using an unofficial/internal YouTube interface without a YouTube
+  Data API key. Unofficial access may change, break, be restricted, or be blocked.
+- Select `YT_PROVIDER=api` and supply your own `YOUTUBE_API_KEY` to use the
+  official YouTube Data API v3 for those three tools.
+- Transcript tools always use `youtube-transcript-plus`, regardless of
+  `YT_PROVIDER`. Transcript retrieval remains unofficial and does not use the
+  official Data API path or your API key.
+
+Users are responsible for deciding whether an access method suits their use and
+for complying with applicable service terms and law. See
+[access methods and service terms](https://github.com/granitebps/youtube-mcp/blob/main/docs/access-and-compliance.md)
+for the tool/backend mapping, BYOK setup, limitations, and software licenses.
+
 ## Features
 
 | Tool | Description |
@@ -25,7 +44,7 @@ Supports both **stdio** (local) and **Streamable HTTP** (VPS/remote) transports.
 
 - Node.js 22 or newer. CI checks Node 22.21.0 and Node 24.
 
-> **No YouTube API key required by default.** The default `innertube` provider uses `youtubei.js` (YouTube's InnerTube API) for video info, comments, and search. Transcripts always use `youtube-transcript-plus`. Neither needs an API key or authentication. See [Providers](#providers) for the optional official API.
+> **No YouTube API key required by default.** The default `innertube` provider uses `youtubei.js` (an unofficial/internal YouTube interface) for video info, comments, and search. Transcripts always use `youtube-transcript-plus`. Neither needs an API key or authentication. See [Providers](#providers) for the optional official API.
 
 ## Quick start
 
@@ -409,12 +428,14 @@ The server never retries on its own.
 
 | Provider | Select with | Needs | Notes |
 |----------|-------------|-------|-------|
-| InnerTube | Default, or `YT_PROVIDER=innertube` | Nothing | Uses YouTube's internal API through `youtubei.js`. Free, but YouTube often blocks datacenter IPs (VPS, cloud) with "Sign in to confirm you're not a bot" |
-| Official API | `YT_PROVIDER=api` | `YOUTUBE_API_KEY` | Uses the [YouTube Data API v3](https://developers.google.com/youtube/v3). Works from any IP within your Google Cloud project's daily quota |
+| InnerTube | Default, or `YT_PROVIDER=innertube` | Nothing | Uses an unofficial/internal interface through `youtubei.js`, with no Data API key. YouTube may restrict or block access, including from datacenter IPs (VPS, cloud) |
+| Official API | `YT_PROVIDER=api` | `YOUTUBE_API_KEY` | Uses the [YouTube Data API v3](https://developers.google.com/youtube/v3). Subject to your Google Cloud project's quota, key restrictions, and applicable service terms |
 
-The Data API cannot download captions of videos you do not own, so it has no transcript support. On a blocked IP, the transcript tools still return `ACCESS_BLOCKED` with either provider.
+This server does not use the Data API for captions. Google's [caption-download endpoint](https://developers.google.com/youtube/v3/docs/captions/download) requires OAuth authorization and permission to edit the video; an API key alone is insufficient. Transcript tools use the unofficial `youtube-transcript-plus` path and can return `ACCESS_BLOCKED` with either provider.
 
 ### Using the official API
+
+Bring your own key (BYOK). The key belongs to you; the project does not distribute or host a shared YouTube API key. Supply these settings through the process or MCP client environment; the server does not automatically load `.env` files.
 
 1. In the [Google Cloud console](https://console.cloud.google.com/), create a project, enable **YouTube Data API v3**, and create an API key. Restricting the key to that API is recommended.
 2. Start the server with:
@@ -447,7 +468,7 @@ All settings are optional environment variables, except `YOUTUBE_API_KEY` when `
 | Variable | Default | Effect |
 |----------|---------|--------|
 | `YT_PROVIDER` | `innertube` | Provider for video info, comments, and search: `innertube` or `api`. See [Providers](#providers) |
-| `YOUTUBE_API_KEY` | none | YouTube Data API v3 key. Required when `YT_PROVIDER=api`, ignored otherwise |
+| `YOUTUBE_API_KEY` | none | Your own YouTube Data API v3 key. Required when `YT_PROVIDER=api`, ignored otherwise |
 | `YT_INIT_TIMEOUT_MS` | `15000` | Deadline for creating the shared YouTube client |
 | `YT_REQUEST_TIMEOUT_MS` | `20000` | Deadline for one tool call's upstream work, including waiting for client init |
 | `YT_TRANSCRIPT_MAX_BYTES` | `5000000` | Maximum bytes read from each response fetched for captions |
@@ -504,13 +525,13 @@ Maintainers follow the [release guide](RELEASE.md) for the approved-tag npm, MCP
 
 ## Rate Limits
 
-The default `innertube` provider and the transcript tools use YouTube's internal APIs (the same ones youtube.com uses). There are **no official API quotas**, but:
+The default `innertube` provider and transcript tools use unofficial YouTube interfaces. They do not use the Data API quota system, but this does not imply unrestricted access:
 - Heavy automated usage may trigger CAPTCHAs or temporary blocks
 - Requests from datacenter IPs (VPS, cloud) are often blocked outright
-- Use responsibly — add delays between bulk requests if needed
+- Request pacing does not guarantee access or establish permission under service terms
 
 The `api` provider is limited by your Google Cloud project's YouTube Data API quota instead. See [Providers](#providers).
 
 ## License
 
-[ISC](LICENSE). This project is unofficial and is not affiliated with YouTube or Google.
+[ISC](LICENSE). The software license is separate from YouTube/Google service terms and rights in retrieved content. See the [access guide](https://github.com/granitebps/youtube-mcp/blob/main/docs/access-and-compliance.md#software-licenses-and-service-terms).

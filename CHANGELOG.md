@@ -2,6 +2,13 @@
 
 All notable changes will be documented in this file.
 
+## 1.1.1 - 2026-10-20
+
+- Clarified provider/access documentation and the project's independent, unofficial status, with no affiliation, endorsement, or sponsorship by YouTube or Google.
+- Disclosed that transcript tools always use the unofficial `youtube-transcript-plus` backend, even with `YT_PROVIDER=api`.
+- Documented official API setup with the user's own `YOUTUBE_API_KEY` (BYOK), tool/backend mapping, access limitations, and the distinction between software licenses and service terms.
+- No runtime behavior or MCP tool/API compatibility changes; the default provider, tool inputs/outputs, and error contracts are unchanged.
+
 ## 1.1.0 - 2026-10-14
 
 - Added an optional official YouTube Data API v3 provider. `YT_PROVIDER=api` with `YOUTUBE_API_KEY` serves `get_video_info`, `get_video_comments`, and `search_youtube` through the API, which works from datacenter IPs that YouTube blocks for InnerTube. The default `innertube` provider is unchanged. Transcript tools always use `youtube-transcript-plus`.

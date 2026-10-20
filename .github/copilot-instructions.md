@@ -32,7 +32,7 @@
 - `src/utils/config.ts` reads the `YT_*` limits once at startup.
 - Transcript features are the notable exception to the `youtubei.js` path:
   - `get_video_transcript` and `get_transcript_languages` use `youtube-transcript-plus`
-  - metadata, comments, and search use `youtubei.js`
+  - metadata, comments, and search use the selected provider (`youtubei.js` by default, or the official YouTube Data API v3 with `YT_PROVIDER=api`)
 - `src/utils/parse-video-id.ts` is the normalization layer for every tool that accepts a URL or ID. It supports watch URLs, `youtu.be`, embed URLs, shorts, live URLs, and raw 11-character IDs.
 
 ## Key conventions
@@ -48,5 +48,5 @@
   - keep request-specific error handling in the tool module
   - keep shared YouTube client/caching logic in `src/utils/youtube-api.ts`
 - Schema descriptions matter here. The Zod field descriptions in each tool schema are used as MCP-facing input documentation, so keep them specific and client-friendly when changing or adding parameters.
-- The repo assumes no YouTube API key. README and `.env.example` both reflect that all data comes from `youtubei.js` or `youtube-transcript-plus`; the environment variables in scope are transport/network settings, optional `API_TOKEN` protection for HTTP mode, and the `YT_*` operational limits.
+- The default `innertube` provider uses an unofficial/internal interface through `youtubei.js` without a Data API key. `YT_PROVIDER=api` requires the user's own `YOUTUBE_API_KEY` for metadata, comments, and search. Transcript tools always use unofficial `youtube-transcript-plus` access, independently of the provider and API key. Keep documentation consistent with [the access guide](../docs/access-and-compliance.md).
 - Keep youtubei.js's default `retrieve_player`. Without the player script, YouTube reports available videos as `UNPLAYABLE` and omits caption tracks.
